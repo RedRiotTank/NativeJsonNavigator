@@ -22,39 +22,49 @@ public class NativeJsonNavigator implements AutoCloseable {
     }
 
     public long findValue(String key) {
-        byte[] keyBytes = ("\"" + key + "\"").getBytes();
+        byte[] keyBytes = key.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        if (keyBytes.length == 0) return -1;
+
+        byte firstKeyByte = keyBytes[0];
         long size = segment.byteSize();
 
-        for (long i = 0; i < size - keyBytes.length; i++) {
-            if (match(i, keyBytes)) {
+        long limit = size - keyBytes.length - 2;
 
-                long current = i + keyBytes.length;
+        for (long i = 0; i < limit; i++) {
+            if (segment.get(ValueLayout.JAVA_BYTE, i) == '"' &&
+                    segment.get(ValueLayout.JAVA_BYTE, i + 1) == firstKeyByte) {
 
-                while (current < size && segment.get(java.lang.foreign.ValueLayout.JAVA_BYTE, current) != ':') {
-                    current++;
+                if (matchKey(i + 1, keyBytes)) {
+                    long current = i + keyBytes.length + 2;
+
+                    while (current < size) {
+                        byte b = segment.get(ValueLayout.JAVA_BYTE, current);
+                        current++;
+                        if (b == ':') break;
+                    }
+
+                    while (current < size && isWhitespace(segment.get(ValueLayout.JAVA_BYTE, current))) {
+                        current++;
+                    }
+
+                    long startValue = current;
+                    long endValue = findValueEnd(startValue);
+
+                    return JsonPointer.pack(startValue, (int) (endValue - startValue));
                 }
-
-                current++;
-                while (current < size && isWhitespace(segment.get(java.lang.foreign.ValueLayout.JAVA_BYTE, current))) {
-                    current++;
-                }
-
-                long startValue = current;
-                long endValue = findValueEnd(startValue);
-
-                return JsonPointer.pack(startValue, (int) (endValue - startValue));
             }
         }
         return -1;
     }
 
-    private boolean match(long offset, byte[] target) {
-        for (int i = 0; i < target.length; i++) {
+    private boolean matchKey(long offset, byte[] target) {
+        for (int i = 1; i < target.length; i++) {
             if (segment.get(ValueLayout.JAVA_BYTE, offset + i) != target[i]) {
                 return false;
             }
         }
-        return true;
+        return segment.get(ValueLayout.JAVA_BYTE, offset + target.length) == '"';
     }
 
     private boolean isWhitespace(byte b) {
@@ -155,19 +165,38 @@ public class NativeJsonNavigator implements AutoCloseable {
         return currentPtr;
     }
     private long findValueWithin(String key, int startOffset, int rangeLength) {
-        byte[] keyBytes = ("\"" + key + "\"").getBytes();
-        long limit = (long) startOffset + rangeLength;
+        byte[] keyBytes = key.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (keyBytes.length == 0) return -1;
 
-        for (long i = startOffset; i < limit - keyBytes.length; i++) {
-            if (match(i, keyBytes)) {
-                long current = i + keyBytes.length;
-                while (current < limit && segment.get(ValueLayout.JAVA_BYTE, current) != ':') current++;
-                current++;
-                while (current < limit && isWhitespace(segment.get(ValueLayout.JAVA_BYTE, current))) current++;
+        byte firstKeyByte = keyBytes[0];
 
-                long startValue = current;
-                long endValue = findValueEnd(startValue);
-                return JsonPointer.pack(startValue, (int) (endValue - startValue));
+        long absoluteEnd = (long) startOffset + rangeLength;
+
+        long searchLimit = absoluteEnd - keyBytes.length - 2;
+
+        for (long i = startOffset; i < searchLimit; i++) {
+            if (segment.get(ValueLayout.JAVA_BYTE, i) == '"' &&
+                    segment.get(ValueLayout.JAVA_BYTE, i + 1) == firstKeyByte) {
+
+                if (matchKey(i + 1, keyBytes)) {
+
+                    long current = i + keyBytes.length + 2;
+
+                    while (current < absoluteEnd) {
+                        byte b = segment.get(ValueLayout.JAVA_BYTE, current);
+                        current++;
+                        if (b == ':') break;
+                    }
+
+                    while (current < absoluteEnd && isWhitespace(segment.get(ValueLayout.JAVA_BYTE, current))) {
+                        current++;
+                    }
+
+                    long startValue = current;
+                    long endValue = findValueEnd(startValue);
+
+                    return JsonPointer.pack(startValue, (int) (endValue - startValue));
+                }
             }
         }
         return -1;
