@@ -1,0 +1,7 @@
+{
+  "id": 999,
+  "developer": "Alberto",
+  "libreria": "NativeJsonNavigator",
+  "version": "1.0-alpha",
+  "tags": ["performance", "low-level", "java21"]
+}
