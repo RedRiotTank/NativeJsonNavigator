@@ -1,0 +1,112 @@
+package testing;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import htt.JsonValue;
+import htt.internal.NativeJsonDocument;
+import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.profile.GCProfiler;
+import org.openjdk.jmh.runner.Runner;
+import org.openjdk.jmh.runner.options.Options;
+import org.openjdk.jmh.runner.options.OptionsBuilder;
+
+import java.io.BufferedWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
+
+@BenchmarkMode(Mode.AverageTime)
+@OutputTimeUnit(TimeUnit.MILLISECONDS)
+@State(Scope.Thread)
+@Fork(1)
+@Warmup(iterations = 2)
+@Measurement(iterations = 5)
+public class PerformanceComparison {
+
+    @Param({
+            "project.json",          // ~150 bytes
+            "medium_dataset.json",   // ~10 Megabytes
+            "large_dataset.json"     // ~100 Megabytes
+    })
+    private String currentFile;
+
+    private NativeJsonDocument nativeDocument;
+    private ObjectMapper jacksonMapper;
+    private String jsonContent;
+
+    private String targetKey;
+
+    @Setup(Level.Trial)
+    public void setup() throws Exception {
+        ensureFileExists(currentFile);
+
+        nativeDocument = new NativeJsonDocument(currentFile);
+
+        jacksonMapper = new ObjectMapper();
+        jsonContent = Files.readString(Path.of(currentFile));
+
+        if (currentFile.equals("project.json")) {
+            targetKey = "library";
+        } else {
+            targetKey = "target_data";
+        }
+    }
+
+    @Benchmark
+    public String testJackson() throws Exception {
+        JsonNode node = jacksonMapper.readTree(jsonContent);
+        JsonNode result = node.get(targetKey);
+        return result != null ? result.asText() : null;
+    }
+
+    @Benchmark
+    public String testNative() {
+        JsonValue node = nativeDocument.find(targetKey);
+        return node != null ? node.asString() : null;
+    }
+
+    @TearDown(Level.Trial)
+    public void tearDown() throws Exception {
+        if (nativeDocument != null) {
+            nativeDocument.close();
+        }
+        jsonContent = null;
+        System.gc();
+    }
+
+    // --- UTILS ---
+
+    private void ensureFileExists(String fileName) throws Exception {
+        Path path = Path.of(fileName);
+        if (Files.exists(path)) return;
+
+        System.out.println("\nGenerating " + fileName + " for the first time. Please wait...");
+        if (fileName.equals("project.json")) {
+            Files.writeString(path, "{\n  \"id\": 999,\n  \"developer\": \"Alberto\",\n  \"library\": \"NativeJsonNavigator\",\n  \"version\": \"1.0-alpha\",\n  \"tags\": [\"performance\", \"low-level\", \"java21\"]\n}");
+        } else if (fileName.equals("medium_dataset.json")) {
+            generateLargeJson(path, 100_000);
+        } else if (fileName.equals("large_dataset.json")) {
+            generateLargeJson(path, 1_000_000);
+        }
+    }
+
+    private void generateLargeJson(Path path, int numRecords) throws Exception {
+        try (BufferedWriter writer = Files.newBufferedWriter(path)) {
+            writer.write("{\n  \"metadata\": {\"created\": \"2026-02-26\", \"type\": \"benchmark\"},\n  \"users\": [\n");
+            for (int i = 0; i < numRecords; i++) {
+                writer.write("    { \"id\": " + i + ", \"name\": \"User_" + i + "\", \"active\": true, \"balance\": 123.45 }");
+                if (i < numRecords - 1) writer.write(",");
+                writer.write("\n");
+            }
+            writer.write("  ],\n  \"target_data\": \"Found it!\"\n}");
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        Options opt = new OptionsBuilder()
+                .include(PerformanceComparison.class.getSimpleName())
+                .addProfiler(GCProfiler.class)
+                .build();
+        new Runner(opt).run();
+    }
+}
