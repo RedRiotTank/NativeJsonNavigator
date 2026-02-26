@@ -1,6 +1,6 @@
-package htt;
+package htt.internal;
 
-public class JsonPointer {
+class JsonPointer {
 
     private JsonPointer() {}
 

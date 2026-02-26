@@ -1,27 +1,37 @@
 package testing;
 
-import htt.JsonPointer;
-import htt.NativeJsonNavigator;
+// Fíjate en los imports: ya no necesitas (ni puedes) importar JsonPointer o NativeJsonNavigator
+
+import htt.JsonValue;
+import htt.internal.NativeJsonDocument;
 
 public class Main {
     public static void main(String[] args) {
-        try (NativeJsonNavigator navigator = new NativeJsonNavigator("proyecto.json")) {
 
-            long ptr = navigator.findValue("tags");
+        try (NativeJsonDocument doc = new NativeJsonDocument("proyecto.json")) {
 
-            if (ptr != -1) {
-                System.out.println("Ptr found: " + ptr);
-                System.out.println("Offset: " + JsonPointer.unpackOffset(ptr));
-                System.out.println("Length: " + JsonPointer.unpackLength(ptr));
+            JsonValue tags = doc.find("tags");
 
-                long a = navigator.getElementAt(ptr, 2);
-                String valor = navigator.extract(a);
-                System.out.println("Real val: " + valor);
+            if (tags != null) {
+                System.out.println("Found 'tags' key");
+
+
+                JsonValue elemento = tags.getAt(2);
+
+                if (elemento != null) {
+                    String valor = elemento.asString();
+                    System.out.println("Real val: " + valor);
+                } else {
+                    System.out.println("Index 2 doesn't exists.");
+                }
+
+
             } else {
                 System.out.println("Key 404.");
             }
 
         } catch (Exception e) {
+            System.err.println("Error processing JSON: " + e.getMessage());
             e.printStackTrace();
         }
     }

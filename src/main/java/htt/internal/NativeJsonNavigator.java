@@ -1,4 +1,4 @@
-package htt;
+package htt.internal;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -7,7 +7,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
-public class NativeJsonNavigator implements AutoCloseable {
+class NativeJsonNavigator implements AutoCloseable {
 
     private final Arena arena;
     private final MemorySegment segment;
@@ -22,29 +22,39 @@ public class NativeJsonNavigator implements AutoCloseable {
     }
 
     public long findValue(String key) {
-        byte[] keyBytes = key.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        long size = segment.byteSize();
+        return findValueWithin(key, 0, (int) size);
+    }
 
+    public long findValue(String key, long parentPointer) {
+        if (parentPointer == -1) return -1;
+        int offset = JsonPointer.unpackOffset(parentPointer);
+        int length = JsonPointer.unpackLength(parentPointer);
+        return findValueWithin(key, offset, length);
+    }
+
+    private long findValueWithin(String key, int startOffset, int rangeLength) {
+        byte[] keyBytes = key.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         if (keyBytes.length == 0) return -1;
 
         byte firstKeyByte = keyBytes[0];
-        long size = segment.byteSize();
+        long absoluteEnd = (long) startOffset + rangeLength;
+        long searchLimit = absoluteEnd - keyBytes.length - 2;
 
-        long limit = size - keyBytes.length - 2;
-
-        for (long i = 0; i < limit; i++) {
+        for (long i = startOffset; i < searchLimit; i++) {
             if (segment.get(ValueLayout.JAVA_BYTE, i) == '"' &&
                     segment.get(ValueLayout.JAVA_BYTE, i + 1) == firstKeyByte) {
 
                 if (matchKey(i + 1, keyBytes)) {
                     long current = i + keyBytes.length + 2;
 
-                    while (current < size) {
+                    while (current < absoluteEnd) {
                         byte b = segment.get(ValueLayout.JAVA_BYTE, current);
                         current++;
                         if (b == ':') break;
                     }
 
-                    while (current < size && isWhitespace(segment.get(ValueLayout.JAVA_BYTE, current))) {
+                    while (current < absoluteEnd && isWhitespace(segment.get(ValueLayout.JAVA_BYTE, current))) {
                         current++;
                     }
 
@@ -111,12 +121,13 @@ public class NativeJsonNavigator implements AutoCloseable {
     }
 
     public int getAsInt(long pointer) {
+        if (pointer == -1) return 0; //TODO Exception maybe?
         int offset = JsonPointer.unpackOffset(pointer);
         int length = JsonPointer.unpackLength(pointer);
 
         int result = 0;
         for (int i = 0; i < length; i++) {
-            byte b = segment.get(java.lang.foreign.ValueLayout.JAVA_BYTE, offset + i);
+            byte b = segment.get(ValueLayout.JAVA_BYTE, offset + i);
             if (b >= '0' && b <= '9') {
                 result = result * 10 + (b - '0');
             }
@@ -125,6 +136,7 @@ public class NativeJsonNavigator implements AutoCloseable {
     }
 
     public long getElementAt(long arrayPointer, int index) {
+        if (arrayPointer == -1) return -1;
         int offset = JsonPointer.unpackOffset(arrayPointer);
         int length = JsonPointer.unpackLength(arrayPointer);
 
@@ -151,10 +163,16 @@ public class NativeJsonNavigator implements AutoCloseable {
 
     public long findPath(String... keys) {
         if (keys.length == 0) return -1;
+        return findPath(findValue(keys[0]), keys, 1);
+    }
 
-        long currentPtr = findValue(keys[0]);
+    public long findPathFrom(long startPointer, String... keys) {
+        if (keys.length == 0 || startPointer == -1) return startPointer;
+        return findPath(startPointer, keys, 0);
+    }
 
-        for (int i = 1; i < keys.length; i++) {
+    private long findPath(long currentPtr, String[] keys, int startIndex) {
+        for (int i = startIndex; i < keys.length; i++) {
             if (currentPtr == -1) return -1;
 
             int offset = JsonPointer.unpackOffset(currentPtr);
@@ -163,43 +181,6 @@ public class NativeJsonNavigator implements AutoCloseable {
             currentPtr = findValueWithin(keys[i], offset, length);
         }
         return currentPtr;
-    }
-    private long findValueWithin(String key, int startOffset, int rangeLength) {
-        byte[] keyBytes = key.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        if (keyBytes.length == 0) return -1;
-
-        byte firstKeyByte = keyBytes[0];
-
-        long absoluteEnd = (long) startOffset + rangeLength;
-
-        long searchLimit = absoluteEnd - keyBytes.length - 2;
-
-        for (long i = startOffset; i < searchLimit; i++) {
-            if (segment.get(ValueLayout.JAVA_BYTE, i) == '"' &&
-                    segment.get(ValueLayout.JAVA_BYTE, i + 1) == firstKeyByte) {
-
-                if (matchKey(i + 1, keyBytes)) {
-
-                    long current = i + keyBytes.length + 2;
-
-                    while (current < absoluteEnd) {
-                        byte b = segment.get(ValueLayout.JAVA_BYTE, current);
-                        current++;
-                        if (b == ':') break;
-                    }
-
-                    while (current < absoluteEnd && isWhitespace(segment.get(ValueLayout.JAVA_BYTE, current))) {
-                        current++;
-                    }
-
-                    long startValue = current;
-                    long endValue = findValueEnd(startValue);
-
-                    return JsonPointer.pack(startValue, (int) (endValue - startValue));
-                }
-            }
-        }
-        return -1;
     }
 
     public boolean equals(long pointer, String expected) {
