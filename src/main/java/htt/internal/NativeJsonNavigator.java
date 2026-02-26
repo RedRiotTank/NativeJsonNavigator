@@ -3,6 +3,8 @@ package htt.internal;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -11,6 +13,16 @@ class NativeJsonNavigator implements AutoCloseable {
 
     private final Arena arena;
     private final MemorySegment segment;
+
+    private static final VarHandle STRING_VALUE;
+    static {
+        try {
+            var lookup = MethodHandles.privateLookupIn(String.class, MethodHandles.lookup());
+            STRING_VALUE = lookup.findVarHandle(String.class, "value", byte[].class);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     public NativeJsonNavigator(String filePath) throws Exception {
         this.arena = Arena.ofConfined();
@@ -34,7 +46,7 @@ class NativeJsonNavigator implements AutoCloseable {
     }
 
     private long findValueWithin(String key, int startOffset, int rangeLength) {
-        byte[] keyBytes = key.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] keyBytes = (byte[]) STRING_VALUE.get(key);
         if (keyBytes.length == 0) return -1;
 
         byte firstKeyByte = keyBytes[0];
