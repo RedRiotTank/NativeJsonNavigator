@@ -6,6 +6,7 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
@@ -98,9 +99,31 @@ class NativeJsonNavigator implements AutoCloseable {
         int offset = JsonPointer.unpackOffset(pointer);
         int length = JsonPointer.unpackLength(pointer);
 
-        byte[] bytes = new byte[length];
-        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, offset, bytes, 0, length);
-        return new String(bytes).trim().replace("\"", "");
+        long start = offset;
+        long end = offset + length;
+
+        while (start < end && isWhitespace(segment.get(ValueLayout.JAVA_BYTE, start))) {
+            start++;
+        }
+
+        while (end > start && isWhitespace(segment.get(ValueLayout.JAVA_BYTE, end - 1))) {
+            end--;
+        }
+
+        if (end - start >= 2 &&
+                segment.get(ValueLayout.JAVA_BYTE, start) == '"' &&
+                segment.get(ValueLayout.JAVA_BYTE, end - 1) == '"') {
+            start++;
+            end--;
+        }
+
+        int finalLength = (int) (end - start);
+        if (finalLength <= 0) return "";
+
+        byte[] bytes = new byte[finalLength];
+        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, start, bytes, 0, finalLength);
+
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     private long findValueEnd(long start) {
