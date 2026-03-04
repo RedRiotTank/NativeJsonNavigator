@@ -157,8 +157,11 @@ class NativeJsonNavigator implements AutoCloseable {
                     braceDepth--;
                 }
 
-                if (bracketDepth <= 0 && braceDepth <= 0) {
-                    if (b == ',' || b == '}' || b == ']' || isWhitespace(b)) {
+                if (bracketDepth < 0 || braceDepth < 0) {
+                    break;
+                }
+                if (bracketDepth == 0 && braceDepth == 0) {
+                    if (b == ',' || isWhitespace(b)) {
                         break;
                     }
                 }
