@@ -174,13 +174,17 @@ class NativeJsonNavigator implements AutoCloseable {
         int length = JsonPointer.unpackLength(pointer);
 
         int result = 0;
+        boolean isNegative = false;
+
         for (int i = 0; i < length; i++) {
             byte b = segment.get(ValueLayout.JAVA_BYTE, offset + i);
-            if (b >= '0' && b <= '9') {
+            if (i == 0 && b == '-') {
+                isNegative = true;
+            } else if (b >= '0' && b <= '9') {
                 result = result * 10 + (b - '0');
             }
         }
-        return result;
+        return isNegative ? -result : result;
     }
 
     public long getElementAt(long arrayPointer, int index) {
