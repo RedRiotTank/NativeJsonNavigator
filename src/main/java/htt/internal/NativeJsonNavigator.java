@@ -113,18 +113,31 @@ class NativeJsonNavigator implements AutoCloseable {
         while (current < size) {
             byte b = segment.get(ValueLayout.JAVA_BYTE, current);
 
-            if (b == '"' && (current == 0 || segment.get(ValueLayout.JAVA_BYTE, current - 1) != '\\')) {
-                inQuotes = !inQuotes;
-            }
-
-            if (!inQuotes) {
-                if (b == '[') bracketDepth++;
-                else if (b == ']') bracketDepth--;
-                else if (b == '{') braceDepth++;
-                else if (b == '}') braceDepth--;
+            if (inQuotes) {
+                if (b == '\\') {
+                    current += 2;
+                    continue;
+                }
+                if (b == '"') {
+                    inQuotes = false;
+                }
+            } else {
+                if (b == '"') {
+                    inQuotes = true;
+                } else if (b == '[') {
+                    bracketDepth++;
+                } else if (b == ']') {
+                    bracketDepth--;
+                } else if (b == '{') {
+                    braceDepth++;
+                } else if (b == '}') {
+                    braceDepth--;
+                }
 
                 if (bracketDepth <= 0 && braceDepth <= 0) {
-                    if (b == ',' || b == '}' || b == ']' || b == '\n') break;
+                    if (b == ',' || b == '}' || b == ']' || isWhitespace(b)) {
+                        break;
+                    }
                 }
             }
             current++;
