@@ -1,4 +1,4 @@
-package io.github.redrirottank.nativejson;
+package io.github.redriottank.nativejson;
 
 /**
  * Packs a 32-bit byte offset and a 32-bit length into a single {@code long}.

@@ -2,8 +2,8 @@ package testing;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.redrirottank.nativejson.JsonDocument;
-import io.github.redrirottank.nativejson.JsonValue;
+import io.github.redriottank.nativejson.JsonDocument;
+import io.github.redriottank.nativejson.JsonValue;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.profile.GCProfiler;
 import org.openjdk.jmh.runner.Runner;

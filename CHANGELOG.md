@@ -22,14 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Nesting-depth guard (1,000 levels) against stack exhaustion.
 - UTF-8 BOM support and clear errors for empty/oversized files.
 - Thread-safe concurrent reads using a shared memory arena.
-- Java Platform Module System descriptor (`io.github.redrirottank.nativejson`).
+- Java Platform Module System descriptor (`io.github.redriottank.nativejson`).
 - Maven Central publishing setup: sources, Javadoc, GPG signatures, Central
   Portal plugin and a GitHub Actions release workflow.
 
 ### Changed
 
-- Coordinates are now `io.github.redrirottank:native-json-navigator`.
-- Packages moved from `htt` to `io.github.redrirottank.nativejson`.
+- Coordinates are now `io.github.redriottank:native-json-navigator`.
+- Packages moved from `htt` to `io.github.redriottank.nativejson`.
 - Minimum runtime is Java 22 (no `--enable-preview` or `--add-opens` needed).
 - The published jar has no runtime dependencies (JMH and Jackson are test-only).
 - `find` is now scoped to the document root; use `findPath` for nested access.

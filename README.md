@@ -1,6 +1,6 @@
 # Native JSON Navigator
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.redrirottank/native-json-navigator.svg?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.redrirottank/native-json-navigator)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.redriottank/native-json-navigator.svg?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.redriottank/native-json-navigator)
 [![CI](https://github.com/RedRiotTank/NativeJsonNavigator/actions/workflows/ci.yml/badge.svg)](https://github.com/RedRiotTank/NativeJsonNavigator/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-22%2B-orange.svg)](https://openjdk.org/)
@@ -20,7 +20,7 @@ are needed).
 
 ```xml
 <dependency>
-    <groupId>io.github.redrirottank</groupId>
+    <groupId>io.github.redriottank</groupId>
     <artifactId>native-json-navigator</artifactId>
     <version>1.0.0</version>
 </dependency>
@@ -29,14 +29,14 @@ are needed).
 ### Gradle
 
 ```kotlin
-implementation("io.github.redrirottank:native-json-navigator:1.0.0")
+implementation("io.github.redriottank:native-json-navigator:1.0.0")
 ```
 
 ## Quick start
 
 ```java
-import io.github.redrirottank.nativejson.JsonDocument;
-import io.github.redrirottank.nativejson.JsonValue;
+import io.github.redriottank.nativejson.JsonDocument;
+import io.github.redriottank.nativejson.JsonValue;
 
 import java.nio.file.Path;
 

@@ -1,4 +1,4 @@
-package io.github.redrirottank.nativejson;
+package io.github.redriottank.nativejson;
 
 /**
  * The JSON value types understood by this library.

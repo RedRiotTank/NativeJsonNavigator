@@ -1,4 +1,4 @@
-package io.github.redrirottank.nativejson;
+package io.github.redriottank.nativejson;
 
 import java.io.IOException;
 import java.nio.file.Path;

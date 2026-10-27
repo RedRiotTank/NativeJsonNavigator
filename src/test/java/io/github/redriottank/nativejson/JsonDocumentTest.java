@@ -1,4 +1,4 @@
-package io.github.redrirottank.nativejson;
+package io.github.redriottank.nativejson;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

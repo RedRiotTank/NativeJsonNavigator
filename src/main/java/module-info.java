@@ -1,6 +1,6 @@
 /**
  * Memory-mapped, lazy JSON navigation for Java.
  */
-module io.github.redrirottank.nativejson {
-    exports io.github.redrirottank.nativejson;
+module io.github.redriottank.nativejson {
+    exports io.github.redriottank.nativejson;
 }

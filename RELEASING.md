@@ -11,7 +11,7 @@ release build produces the main jar plus `-sources` and `-javadoc` jars.
 
 1. Sign in to <https://central.sonatype.com/> with the GitHub account that owns
    this repository (`RedRiotTank`).
-2. Add the namespace **`io.github.redrirottank`**. GitHub-based namespaces are
+2. Add the namespace **`io.github.redriottank`**. GitHub-based namespaces are
    verified automatically while logged in with the owning account.
 3. Generate a **user token** under *Account → Generate User Token*. The token
    consists of a username and a password.
@@ -90,13 +90,13 @@ published automatically after Central's validation.
 
 ```xml
 <dependency>
-    <groupId>io.github.redrirottank</groupId>
+    <groupId>io.github.redriottank</groupId>
     <artifactId>native-json-navigator</artifactId>
     <version>1.0.0</version>
 </dependency>
 ```
 
-* Artifact page: <https://central.sonatype.com/artifact/io.github.redrirottank/native-json-navigator>
+* Artifact page: <https://central.sonatype.com/artifact/io.github.redriottank/native-json-navigator>
 * Search: <https://central.sonatype.com/search?q=native-json-navigator>
 
 Maven Central indexing can take a few minutes after publication.

@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>io.github.redrirottank</groupId>
+    <groupId>io.github.redriottank</groupId>
     <artifactId>native-json-navigator</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
@@ -135,7 +135,7 @@
                 <configuration>
                     <archive>
                         <manifestEntries>
-                            <Automatic-Module-Name>io.github.redrirottank.nativejson</Automatic-Module-Name>
+                            <Automatic-Module-Name>io.github.redriottank.nativejson</Automatic-Module-Name>
                         </manifestEntries>
                     </archive>
                 </configuration>

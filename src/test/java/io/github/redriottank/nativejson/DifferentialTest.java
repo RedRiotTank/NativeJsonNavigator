@@ -1,4 +1,4 @@
-package io.github.redrirottank.nativejson;
+package io.github.redriottank.nativejson;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

@@ -1,4 +1,4 @@
-package io.github.redrirottank.nativejson;
+package io.github.redriottank.nativejson;
 
 /**
  * Thrown when the underlying document is not valid JSON.

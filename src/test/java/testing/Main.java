@@ -1,7 +1,7 @@
 package testing;
 
-import io.github.redrirottank.nativejson.JsonDocument;
-import io.github.redrirottank.nativejson.JsonValue;
+import io.github.redriottank.nativejson.JsonDocument;
+import io.github.redriottank.nativejson.JsonValue;
 
 /**
  * Small manual smoke-test/demo. Run from the repository root:
