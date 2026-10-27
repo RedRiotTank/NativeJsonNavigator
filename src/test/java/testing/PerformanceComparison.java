@@ -2,8 +2,8 @@ package testing;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import htt.JsonValue;
-import htt.internal.NativeJsonDocument;
+import io.github.redrirottank.nativejson.JsonDocument;
+import io.github.redrirottank.nativejson.JsonValue;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.profile.GCProfiler;
 import org.openjdk.jmh.runner.Runner;
@@ -30,7 +30,7 @@ public class PerformanceComparison {
     })
     private String currentFile;
 
-    private NativeJsonDocument nativeDocument;
+    private JsonDocument nativeDocument;
     private ObjectMapper jacksonMapper;
     private String jsonContent;
 
@@ -40,7 +40,7 @@ public class PerformanceComparison {
     public void setup() throws Exception {
         ensureFileExists(currentFile);
 
-        nativeDocument = new NativeJsonDocument(currentFile);
+        nativeDocument = JsonDocument.open(currentFile);
 
         jacksonMapper = new ObjectMapper();
         jsonContent = Files.readString(Path.of(currentFile));

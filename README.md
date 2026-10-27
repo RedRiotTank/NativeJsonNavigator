@@ -1,169 +1,180 @@
 # Native JSON Navigator
 
-A high-performance, ultra-low-allocation JSON parser and navigator for modern Java. Built from the ground up using Java 21's **Foreign Function & Memory API (Project Panama)** to memory-map large JSON files off-heap and navigate them lazily using bit-packed primitive pointers.
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.redrirottank/native-json-navigator.svg?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.redrirottank/native-json-navigator)
+[![CI](https://github.com/RedRiotTank/NativeJsonNavigator/actions/workflows/ci.yml/badge.svg)](https://github.com/RedRiotTank/NativeJsonNavigator/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Java](https://img.shields.io/badge/Java-22%2B-orange.svg)](https://openjdk.org/)
 
-## Documentation
+A high-performance, near-zero-allocation JSON reader for modern Java. It maps a
+UTF-8 JSON file directly into off-heap memory with the **Foreign Function &
+Memory API** and navigates it lazily using bit-packed primitive pointers,
+without building a tree of Java objects.
 
-* **Official Repository:** [NativeJsonNavigator](https://github.com/RedRiotTank/NativeJsonNavigator).
-* **Java Version Required:** JDK 21+ (with `--enable-preview` if applicable for older JDK 21 builds, and `--add-opens java.base/java.lang=ALL-UNNAMED` for internal String access).
+## Installation
 
----
+The library has **no runtime dependencies**. Java **22 or newer** is required
+(the Foreign Function & Memory API is final since Java 22, so no preview flags
+are needed).
 
-## 🚀 What It Does
+### Maven
 
-Traditional JSON parsers (like Jackson or Gson) read JSON data and fully deserialize it into a heavy tree of Java objects (`JsonNode`, `Map`, `List`), causing massive garbage collector (GC) pressure when dealing with large files.
+```xml
+<dependency>
+    <groupId>io.github.redrirottank</groupId>
+    <artifactId>native-json-navigator</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
 
-**Native JSON Navigator** takes a radically different approach: it maps the JSON file directly into off-heap native memory using `MemorySegment` and performs **lazy, non-destructive navigation**. Instead of allocating objects for every JSON node, it tracks coordinates inside the memory-mapped file using a single, bit-packed primitive 64-bit `long` pointer.
+### Gradle
 
----
+```kotlin
+implementation("io.github.redrirottank:native-json-navigator:1.0.0")
+```
 
-## ⚖️ Philosophy & Trade-offs: Jackson vs. Native
-
-**This library is NOT a general-purpose replacement for Jackson or Gson.** In software engineering, extreme performance always comes at a cost. While Jackson prioritizes **developer convenience and safety**, Native JSON Navigator prioritizes **raw throughput and zero allocation**.
-
-Understanding the balance between complexity and speed is essential for choosing the right tool:
-
-### The Jackson Approach (High Abstraction)
-* **Pros:** Bulletproof RFC compliance, rich error handling/validation, automatic POJO data-binding, and an intuitive, foolproof API.
-* **Cons:** Massive object allocation, high CPU/memory overhead on large datasets, and heavy Garbage Collector pressure.
-
-### The Native Approach (Low-Level Performance)
-* **Pros:** Up to 10x faster execution, near-zero heap allocation, and immune to high GC pauses on gigabyte-sized files.
-* **Cons:** Increased structural complexity. Navigation requires tracking primitive bit-packed pointers, data is processed raw in native space, and there is no automated reflection-based object mapping. It also assumes well-formed JSON payloads; invalid syntax can lead to unexpected pointer tracking instead of clean, structured exceptions.
-
-> 💡 **Rule of thumb:** Use **Jackson** for standard REST APIs, configuration files, and complex business logic mapping. Use **Native JSON Navigator** as a specialized tool for high-throughput data ingestion, heavy log parsing pipelines, or memory-constrained environments where GC pauses are unacceptable.
-
----
-
-### Key Features
-
-* **Zero/Near-Zero Allocation:** Navigating objects and arrays does not allocate heap memory. It only allocates lightweight Java `record` nodes on demand when you explicitly request a value.
-* **Memory-Mapped I/O:** Uses OS-level page caches through `FileChannel.MapMode.READ_ONLY` and Project Panama's `Arena.ofConfined()`, allowing instantaneous "loading" of multi-gigabyte files without memory overhead.
-* **Bit-Packed Pointers:** Compresses both the `offset` (32 bits) and the `length` (32 bits) of a JSON node into a single primitive `long` to completely bypass wrapper object overhead.
-* **Unsafe Reflection Optimizations:** Utilizes a highly optimized internal `VarHandle` to read the underlying `byte[]` of standard Java Strings directly, preventing array duplication during key-matching loops.
-
-### Common Use Cases
-
-* **Log and Event Processing:** Quick extraction of specific fields from massive, multi-gigabyte JSON log files.
-* **Microservices under Tight Memory Constraints:** Parsing JSON payloads without triggering high Garbage Collection pauses or hitting heap limits.
-* **High-Throughput Ingestion Pipelines:** Filtering and routing JSON messages at near-line rate speed.
-
----
-
-## 🛠️ Core Interfaces & Components
-
-The library hides the complexity of native memory tracking under a clean, public object-oriented API:
-
-### `JsonValue` Interface
-
-Represents a lazy reference to a JSON element (Object, Array, String, Number, Boolean, Null).
-
-| Method | Return Type | Description |
-| :--- | :--- | :--- |
-| `asString()` | `String` | Materializes and returns the value as a Java String (with unescaping support). |
-| `asInt()` | `int` | Parses the raw bytes directly into an integer **without allocating a String**. |
-| `asBoolean()` | `boolean` | Checks byte-level equality against `"true"` or `"false"`. |
-| `isNull()` | `boolean` | Checks byte-level equality against `"null"`. |
-| `get(String key)` | `JsonValue` | *[TODO]* Finds a property within a JSON Object. |
-| `getAt(int index)` | `JsonValue` | Extracts the element at the specified index from a JSON Array. |
-| `findPath(String... keys)`| `JsonValue` | Performs deep-path navigation through nested objects. |
-
----
-
-## 📋 Examples
-
-Using Native JSON Navigator inside a `try-with-resources` block ensures that the native memory arena is safely closed and unmapped immediately after use.
-
-**Example: Open a large JSON file, locate an array called "tags", and extract its third element.**
+## Quick start
 
 ```java
-import htt.JsonValue;
-import htt.internal.NativeJsonDocument;
+import io.github.redrirottank.nativejson.JsonDocument;
+import io.github.redrirottank.nativejson.JsonValue;
+
+import java.nio.file.Path;
 
 public class Main {
-    public static void main(String[] args) {
-        
-        // The document automatically unmaps and releases native memory upon close
-        try (NativeJsonDocument doc = new NativeJsonDocument("proyecto.json")) {
-
-            // Search for the top-level key "tags"
+    public static void main(String[] args) throws Exception {
+        try (JsonDocument doc = JsonDocument.open(Path.of("data.json"))) {
             JsonValue tags = doc.find("tags");
 
-            if (tags != null) {
-                System.out.println("Found 'tags' key!");
-
-                // Lazily navigate to index 2 (3rd element) inside the array
-                JsonValue elemento = tags.getAt(2);
-
-                if (elemento != null) {
-                    String valor = elemento.asString();
-                    System.out.println("Real val: " + valor); // Outputs the string value
-                } else {
-                    System.out.println("Index 2 doesn't exist.");
-                }
-            } else {
-                System.out.println("Key 'tags' not found (404).");
+            if (tags != null && tags.isArray()) {
+                JsonValue third = tags.getAt(2);
+                System.out.println(third == null ? "index 2 does not exist" : third.asString());
             }
 
-        } catch (Exception e) {
-            System.err.println("Error processing JSON: " + e.getMessage());
-            e.printStackTrace();
+            // Nested navigation: object keys and array indices can be mixed.
+            String firstUserName = doc.root().findPath("users", "0", "name").asString();
+            System.out.println(firstUserName);
         }
     }
 }
 ```
 
-## 📊 Performance & Benchmarks
+`JsonDocument` implements `AutoCloseable`: closing it immediately releases the
+native mapping.
 
-To validate the efficiency of this approach, strict microbenchmarks were executed using **JMH (Java Microbenchmark Harness)**, comparing this implementation (`Native`) against the industry-standard **Jackson Databind (v2.17.0)**.
+## Why another JSON parser?
 
-### Environment Specs
-* **CPU:** AMD Ryzen 7 7800X3D 8-Core Processor (4.20 GHz)
-* **OS:** Windows / Linux (Memory-Mapped I/O)
-* **Runtime:** Java HotSpot(TM) 64-Bit Server VM, JDK 21.0.2
+Traditional parsers deserialize the complete document into a tree of objects
+(`JsonNode`, `Map`, `List`), allocating once per node. That is convenient, but
+it creates GC pressure on large files.
 
-### ⏱️ Execution Time (Lower is Better)
+Native JSON Navigator takes a different approach:
 
-| Dataset | Jackson Score (`ms/op`) | Native Score (`ms/op`) | Speedup Factor |
-| :--- | :---: | :---: | :---: |
-| `project.json` (Small) | ≈ 0.001 ms | **≈ 0.0001 ms** | **~ 10.0x Faster** |
-| `medium_dataset.json` | 24.331 ms | **3.633 ms** | **~ 6.7x Faster** |
-| `large_dataset.json` | 360.902 ms | **36.818 ms** | **~ 9.8x Faster** |
+* **Memory-mapped I/O** — the OS page cache backs the file. Opening a
+  multi-gigabyte document does not copy it onto the heap.
+* **Lazy navigation** — only the values you actually read are decoded.
+* **Packed pointers** — input positions are kept in a single `long` containing
+  a 32-bit offset and a 32-bit length, so intermediate navigation state stays
+  primitive. Only the small `JsonValue` view you request is allocated.
+* **Direct byte parsing** — integers, booleans, null checks and key matching are
+  performed on the raw bytes without intermediate `String` objects.
 
+> **When not to use it:** if you need POJO binding, schema validation, JSON
+> writing, or defensive handling of completely untrusted input, use Jackson or
+> Gson. This library is a focused, read-only navigator for large or
+> latency-sensitive workloads.
+
+## Requirements and limits
+
+| Item | Value |
+| :--- | :--- |
+| Java | 22+ (no `--enable-preview`, no `--add-opens`) |
+| Encoding | UTF-8 (an optional UTF-8 BOM is accepted) |
+| Maximum file size | 2 GiB (32-bit offsets) |
+| Access | Read-only |
+| Thread safety | Concurrent reads are safe; do not close while reading |
+| Thread confinement | None: documents use a shared arena |
+
+## API overview
+
+| Type / method | Description |
+| :--- | :--- |
+| `JsonDocument.open(String \| Path)` | Maps a JSON file. |
+| `JsonDocument.find(String)` | Reads a top-level member (shorthand for `root().get(key)`). |
+| `JsonDocument.root()` | Returns the root `JsonValue`. |
+| `JsonDocument.byteSize()` / `path()` | File metadata. |
+| `JsonDocument.close()` | Releases the mapping; idempotent. |
+| `JsonValue.type()` | Returns `OBJECT`, `ARRAY`, `STRING`, `NUMBER`, `BOOLEAN` or `NULL`. |
+| `asString()` | Decodes a string (including escapes), or returns the raw token for other types. |
+| `raw()` | Returns the verbatim JSON text of the value. |
+| `asInt()` / `asLong()` / `asDouble()` | Parses numbers without intermediate strings (except `asDouble`). |
+| `asBoolean()` | Reads `true` / `false`. |
+| `isNull()` / `isObject()` / `isArray()` / `isString()` / `isNumber()` / `isBoolean()` | Type checks. |
+| `size()` | Number of object members or array elements (O(n)). |
+| `keys()` | Object member names in document order. |
+| `get(String)` | Reads an object member; `null` when absent. |
+| `getAt(int)` | Reads an array element; `null` when out of bounds. |
+| `findPath(String...)` | Mixed key/index navigation, for example `findPath("users", "0", "name")`. |
+
+### Error handling
+
+* `JsonParseException` is thrown for malformed JSON. It exposes the byte
+  `offset()` where the problem was found.
+* Navigation is lazy, so only the traversed part of the document is validated.
+  Call `doc.root().raw()` to force a full structural validation pass.
+* Calling `asInt()`, `asBoolean()`, `size()`, etc. on the wrong type throws
+  `IllegalStateException`.
+* Reading a value after `close()` throws `IllegalStateException`.
+
+## Performance
+
+Microbenchmarks were run with **JMH** against **Jackson Databind 2.17.0**.
+
+Environment: AMD Ryzen 7 7800X3D (4.20 GHz), JDK 21, Linux/Windows,
+memory-mapped I/O. (The benchmarks were recorded on JDK 21 while the Foreign
+Function &amp; Memory API was still in preview; the implementation is unchanged
+apart from targeting the final API in Java 22.)
+
+### Execution time (lower is better)
+
+| Dataset | Jackson | Native | Speedup |
+| :--- | ---: | ---: | ---: |
+| `project.json` (small) | ≈ 0.001 ms | **≈ 0.0001 ms** | ≈ 10x |
+| `medium_dataset.json` | 24.331 ms | **3.633 ms** | ≈ 6.7x |
+| `large_dataset.json` | 360.902 ms | **36.818 ms** | ≈ 9.8x |
+
+### Heap allocation per operation (lower is better)
+
+| Dataset | Jackson | Native | Reduction |
+| :--- | ---: | ---: | ---: |
+| `project.json` (small) | 1,688 B | **128 B** | 92.4% |
+| `medium_dataset.json` | ~56.4 MB | **140 B** | 99.99% |
+| `large_dataset.json` | ~566.5 MB | **186 B** | 99.99% |
+
+During the large-dataset run Jackson triggered 302 GC collections (10,865 ms
+of GC time); the native navigator triggered 1 collection (3 ms).
+
+Benchmarks live in `src/test/java/testing/PerformanceComparison.java` and can be
+run with:
+
+```bash
+./mvnw -q test-compile
+./mvnw -q exec:java -Dexec.classpathScope=test -Dexec.mainClass=testing.PerformanceComparison
 ```
-Execution Time Chart (Large Dataset)
-Jackson: 
-████████████████████████████████████████ 360.90 ms
-Native:  
-████ 36.81 ms (~10x faster)
+
+## Building from source
+
+```bash
+./mvnw verify
 ```
 
-### 🎛️ Memory Allocation Rate & GC Pressure
+The build enforces Java 22+, runs the test suite, and produces the main,
+sources and Javadoc jars in `target/`.
 
-The core metric where this library shines is heap memory conservation. Because it processes bytes in native space, the Java Garbage Collector has practically zero work to do.
+## Releasing
 
-| Dataset | Jackson Heap Alloc (`B/op`) | Native Heap Alloc (`B/op`) | Allocation Reduction |
-| :--- | :---: | :---: | :---: |
-| `project.json` (Small) | 1,688 B | **128 B** | **- 92.4%** |
-| `medium_dataset.json` | 56,474,447 B (~56.4 MB) | **140 B** | **- 99.99%** |
-| `large_dataset.json` | 566,580,144 B (~566.5 MB) | **186 B** | **- 99.99%** |
+See [RELEASING.md](RELEASING.md) for the Maven Central release process and the
+GitHub Actions workflow.
 
-```
-Heap Memory Allocation (Large Dataset)
-Jackson: 
-████████████████████████████████████████ 566.5 Megabytes
-Native:  
-▏186 Bytes (Virtually Zero Allocation)
-```
-* **Jackson GC Overhead:** During the large dataset test, Jackson forced **302 GC collections**, stopping or slowing down the thread for a total of **10,865 ms** inside the benchmark window.
-* **Native GC Overhead:** The Native implementation ran the entire large dataset benchmark with exactly **1 GC collection** and only **3 ms** total GC time.
+## License
 
----
-
-## ⚠️ Disclaimers & Limitations
-
-**JSON Compliance**
-This is an experimental, highly optimized native navigator. It currently assumes well-formed JSON inputs and performs minimal validation to maintain its extreme throughput speeds. Malformed JSON payloads might cause unexpected tracking pointers.
-
-**Concurrency**
-The `NativeJsonDocument` binds itself to a single-threaded execution context if initialized via a confined `Arena` (defaulting to maximum performance). Do not share instances across multiple virtual or platform threads without coordinating synchronization or shifting to a shared arena.
+Apache License 2.0. See [LICENSE](LICENSE).
