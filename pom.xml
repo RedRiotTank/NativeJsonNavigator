@@ -6,7 +6,7 @@
 
     <groupId>io.github.redriottank</groupId>
     <artifactId>native-json-navigator</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <packaging>jar</packaging>
 
     <name>Native JSON Navigator</name>
@@ -35,7 +35,7 @@
         <connection>scm:git:git://github.com/RedRiotTank/NativeJsonNavigator.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/RedRiotTank/NativeJsonNavigator.git</developerConnection>
         <url>https://github.com/RedRiotTank/NativeJsonNavigator</url>
-        <tag>v1.0.0</tag>
+        <tag>v1.0.1</tag>
     </scm>
 
     <issueManagement>

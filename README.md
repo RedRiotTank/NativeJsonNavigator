@@ -22,14 +22,14 @@ are needed).
 <dependency>
     <groupId>io.github.redriottank</groupId>
     <artifactId>native-json-navigator</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```kotlin
-implementation("io.github.redriottank:native-json-navigator:1.0.0")
+implementation("io.github.redriottank:native-json-navigator:1.0.1")
 ```
 
 ## Quick start
