@@ -56,6 +56,43 @@ Add these repository secrets (*Settings → Secrets and variables → Actions*):
 
 ## Cutting a release
 
+### One command (recommended)
+
+```bash
+./scripts/release.sh 1.1.0 --wait
+```
+
+The script:
+
+1. Refuses to run on a dirty or out-of-date `master`.
+2. Runs `./mvnw -Prelease verify` (tests + GPG signing when the local key is
+   available).
+3. Updates the version in `pom.xml`, the `<scm><tag>` and the README snippets.
+4. Commits `release: v1.1.0`, creates the `v1.1.0` tag and pushes both.
+5. Creates the GitHub Release, which triggers the Central deployment.
+6. With `--wait`, waits for the workflow and reports the result.
+
+Options: `--notes <file>` for custom release notes, `--dry-run` to preview, and
+`--yes` to skip confirmation. Add a `## [1.1.0]` section to `CHANGELOG.md`
+first if you want a curated changelog.
+
+### Guard rails
+
+Both the script and `.github/workflows/release.yml` run
+`scripts/validate-release.sh`, which fails the release when:
+
+* the tag is not exactly `v` + the `pom.xml` version (for example release
+  `v1.1.0` with `<version>1.0.0</version>`);
+* the version is a `SNAPSHOT` or is not a valid release version;
+* the groupId/artifactId are not
+  `io.github.redriottank:native-json-navigator`;
+* the version already exists on Maven Central (Central is immutable).
+
+So even if a mismatch slips through locally, the GitHub workflow stops before
+building or uploading anything.
+
+### Manual release
+
 1. Update `<version>` in `pom.xml` and the `<tag>` in `<scm>`.
 2. Run the full build locally:
 
@@ -67,8 +104,9 @@ Add these repository secrets (*Settings → Secrets and variables → Actions*):
 3. Commit, tag and push:
 
    ```bash
-   git commit -am "release: v1.0.0"
-   git tag -s v1.0.0 -m "Native JSON Navigator 1.0.0"
+   ./scripts/validate-release.sh --tag v1.1.0
+   git commit -am "release: v1.1.0"
+   git tag -a v1.1.0 -m "Native JSON Navigator 1.1.0"
    git push origin master --follow-tags
    ```
 
@@ -85,6 +123,9 @@ Manual publication works the same way:
 
 The release profile sets `autoPublish=true`, so a successful upload is
 published automatically after Central's validation.
+
+> A tag push alone does **not** publish anything. Only publishing a GitHub
+> Release (or running the workflow manually) triggers the deployment.
 
 ## Verifying the release
 

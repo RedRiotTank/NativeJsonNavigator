@@ -30,3 +30,10 @@ jobs:
 
       - name: Verify
         run: ./mvnw -B -ntp verify
+
+      - name: Validate release scripts
+        run: |
+          bash -n scripts/release.sh
+          bash -n scripts/validate-release.sh
+          ./scripts/release.sh --help > /dev/null
+          ./scripts/validate-release.sh --help > /dev/null
