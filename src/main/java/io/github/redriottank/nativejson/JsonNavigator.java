@@ -11,6 +11,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Memory-mapped, lazily validated JSON reader.
@@ -36,48 +38,62 @@ final class JsonNavigator implements AutoCloseable {
     private final MemorySegment segment;
     private final int size;
     private final int rootOffset;
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     private volatile boolean closed;
 
     JsonNavigator(Path path) throws IOException {
-        long fileSize = Files.size(path);
-        if (fileSize == 0) {
-            throw new JsonParseException("JSON document is empty: " + path);
-        }
-        if (fileSize > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(
-                    "JSON documents larger than 2 GiB are not supported (file is " + fileSize + " bytes): " + path);
-        }
+        this(path, Arena.ofShared());
+    }
 
-        Arena arena = Arena.ofShared();
-        MemorySegment segment;
-        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
-            segment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
-        } catch (Throwable failure) {
-            arena.close();
+    /**
+     * Creates a navigator over {@code path}, taking ownership of {@code arena}.
+     *
+     * <p>The supplied arena is closed if construction fails, and on
+     * {@link #close()} otherwise. Package-private so that the lifecycle tests
+     * can observe both paths.</p>
+     */
+    JsonNavigator(Path path, Arena arena) throws IOException {
+        Objects.requireNonNull(arena, "arena must not be null");
+        try {
+            long fileSize = Files.size(path);
+            if (fileSize == 0) {
+                throw new JsonParseException("JSON document is empty: " + path);
+            }
+            if (fileSize > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException(
+                        "JSON documents larger than 2 GiB are not supported (file is " + fileSize + " bytes): " + path);
+            }
+
+            MemorySegment segment;
+            try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+                segment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
+            }
+
+            this.arena = arena;
+            this.segment = segment;
+            this.size = (int) fileSize;
+
+            int start = 0;
+            if (size >= 3
+                    && byteAt(0) == (byte) 0xEF
+                    && byteAt(1) == (byte) 0xBB
+                    && byteAt(2) == (byte) 0xBF) {
+                start = 3;
+            }
+            start = skipWhitespace(start, size);
+            if (start >= size) {
+                throw new JsonParseException("JSON document contains only whitespace: " + path, start);
+            }
+            byte first = byteAt(start);
+            if (!startsValue(first)) {
+                throw new JsonParseException("Unexpected character '" + printable(first) + "' at start of document", start);
+            }
+            this.rootOffset = start;
+        } catch (IOException | RuntimeException | Error failure) {
+            closeArena(arena, failure);
             throw failure;
         }
-
-        this.arena = arena;
-        this.segment = segment;
-        this.size = (int) fileSize;
-
-        int start = 0;
-        if (size >= 3
-                && byteAt(0) == (byte) 0xEF
-                && byteAt(1) == (byte) 0xBB
-                && byteAt(2) == (byte) 0xBF) {
-            start = 3;
-        }
-        start = skipWhitespace(start, size);
-        if (start >= size) {
-            throw new JsonParseException("JSON document contains only whitespace: " + path, start);
-        }
-        byte first = byteAt(start);
-        if (!startsValue(first)) {
-            throw new JsonParseException("Unexpected character '" + printable(first) + "' at start of document", start);
-        }
-        this.rootOffset = start;
     }
 
     long rootPointer() {
@@ -89,37 +105,60 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     void ensureOpen() {
+        lock.readLock().lock();
+        try {
+            checkOpen();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private void checkOpen() {
         if (closed) {
             throw new IllegalStateException("The JsonDocument has already been closed");
         }
     }
 
     JsonType typeOf(long pointer) {
-        ensureOpen();
-        int offset = offset(pointer);
-        int end = end(pointer);
-        int position = skipWhitespace(offset, end);
-        if (position >= end) {
-            throw new JsonParseException("Unexpected end of input", position);
-        }
-        byte b = byteAt(position);
-        return switch (b) {
-            case QUOTE -> JsonType.STRING;
-            case OPEN_BRACE -> JsonType.OBJECT;
-            case OPEN_BRACKET -> JsonType.ARRAY;
-            case 't', 'f' -> JsonType.BOOLEAN;
-            case 'n' -> JsonType.NULL;
-            default -> {
-                if (b == '-' || isDigit(b)) {
-                    yield JsonType.NUMBER;
-                }
-                throw new JsonParseException("Unexpected character '" + printable(b) + "'", position);
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            int offset = offset(pointer);
+            int end = end(pointer);
+            int position = skipWhitespace(offset, end);
+            if (position >= end) {
+                throw new JsonParseException("Unexpected end of input", position);
             }
-        };
+            byte b = byteAt(position);
+            return switch (b) {
+                case QUOTE -> JsonType.STRING;
+                case OPEN_BRACE -> JsonType.OBJECT;
+                case OPEN_BRACKET -> JsonType.ARRAY;
+                case 't', 'f' -> JsonType.BOOLEAN;
+                case 'n' -> JsonType.NULL;
+                default -> {
+                    if (b == '-' || isDigit(b)) {
+                        yield JsonType.NUMBER;
+                    }
+                    throw new JsonParseException("Unexpected character '" + printable(b) + "'", position);
+                }
+            };
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     long findKey(long objectPointer, String key) {
-        ensureOpen();
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            return findKeyLocked(objectPointer, key);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private long findKeyLocked(long objectPointer, String key) {
         int offset = offset(objectPointer);
         int end = end(objectPointer);
         int position = skipWhitespace(offset, end);
@@ -169,7 +208,16 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     long elementAt(long arrayPointer, int index) {
-        ensureOpen();
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            return elementAtLocked(arrayPointer, index);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private long elementAtLocked(long arrayPointer, int index) {
         if (index < 0) {
             return -1;
         }
@@ -210,6 +258,16 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     int sizeOf(long pointer) {
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            return sizeOfLocked(pointer);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private int sizeOfLocked(long pointer) {
         JsonType type = typeOf(pointer);
         int offset = offset(pointer);
         int end = end(pointer);
@@ -272,6 +330,16 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     List<String> keysOf(long pointer) {
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            return keysOfLocked(pointer);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private List<String> keysOfLocked(long pointer) {
         if (typeOf(pointer) != JsonType.OBJECT) {
             throw new IllegalStateException("keys() requires an object");
         }
@@ -311,8 +379,28 @@ final class JsonNavigator implements AutoCloseable {
         }
     }
 
+    void validate(long pointer) {
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            validatedValueEnd(pointer);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
     String raw(long pointer) {
-        ensureOpen();
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            int start = skipWhitespace(offset(pointer), end(pointer));
+            return copy(start, validatedValueEnd(pointer));
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private int validatedValueEnd(long pointer) {
         int offset = offset(pointer);
         int end = end(pointer);
         int start = skipWhitespace(offset, end);
@@ -320,21 +408,36 @@ final class JsonNavigator implements AutoCloseable {
         if (skipWhitespace(valueEnd, end) != end) {
             throw new JsonParseException("Unexpected content after JSON value", valueEnd);
         }
-        return copy(start, valueEnd);
+        return valueEnd;
     }
 
     String asString(long pointer) {
-        ensureOpen();
-        int offset = offset(pointer);
-        int end = end(pointer);
-        int start = skipWhitespace(offset, end);
-        if (start < end && byteAt(start) == QUOTE) {
-            return decodeString(start, skipString(start, end));
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            int offset = offset(pointer);
+            int end = end(pointer);
+            int start = skipWhitespace(offset, end);
+            if (start < end && byteAt(start) == QUOTE) {
+                return decodeString(start, skipString(start, end));
+            }
+            return raw(pointer);
+        } finally {
+            lock.readLock().unlock();
         }
-        return raw(pointer);
     }
 
     boolean asBoolean(long pointer) {
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            return asBooleanLocked(pointer);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private boolean asBooleanLocked(long pointer) {
         if (typeOf(pointer) != JsonType.BOOLEAN) {
             throw new IllegalStateException("asBoolean() requires a boolean, but this value is " + typeOf(pointer));
         }
@@ -348,26 +451,50 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     boolean isNull(long pointer) {
-        return typeOf(pointer) == JsonType.NULL && matchesLiteral(pointer, "null");
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            return typeOf(pointer) == JsonType.NULL && matchesLiteral(pointer, "null");
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     int asInt(long pointer) {
-        long value = parseLong(pointer);
-        if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
-            throw new NumberFormatException("Number does not fit in an int: " + raw(pointer));
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            long value = parseLong(pointer);
+            if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+                throw new NumberFormatException("Number does not fit in an int: " + raw(pointer));
+            }
+            return (int) value;
+        } finally {
+            lock.readLock().unlock();
         }
-        return (int) value;
     }
 
     long asLong(long pointer) {
-        return parseLong(pointer);
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            return parseLong(pointer);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     double asDouble(long pointer) {
-        if (typeOf(pointer) != JsonType.NUMBER) {
-            throw new IllegalStateException("asDouble() requires a number, but this value is " + typeOf(pointer));
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            if (typeOf(pointer) != JsonType.NUMBER) {
+                throw new IllegalStateException("asDouble() requires a number, but this value is " + typeOf(pointer));
+            }
+            return Double.parseDouble(raw(pointer));
+        } finally {
+            lock.readLock().unlock();
         }
-        return Double.parseDouble(raw(pointer));
     }
 
     private long parseLong(long pointer) {
@@ -532,8 +659,11 @@ final class JsonNavigator implements AutoCloseable {
                 }
             } else if (b >= 0 && b < 0x20) {
                 throw new JsonParseException("Unescaped control character in string", current);
-            } else {
+            } else if (b >= 0) {
                 current++;
+            } else {
+                int codePoint = codePointAt(current, end);
+                current += utf8Length(codePoint);
             }
         }
         throw new JsonParseException("Unterminated string", position);
@@ -835,12 +965,28 @@ final class JsonNavigator implements AutoCloseable {
         return b >= 0x20 && b < 0x7F ? String.valueOf((char) b) : String.format("\\x%02X", b & 0xFF);
     }
 
-    @Override
-    public synchronized void close() {
-        if (closed) {
-            return;
+    private static void closeArena(Arena arena, Throwable failure) {
+        try {
+            arena.close();
+        } catch (RuntimeException | Error closeFailure) {
+            failure.addSuppressed(closeFailure);
         }
-        closed = true;
-        arena.close();
+    }
+
+    @Override
+    public void close() {
+        lock.writeLock().lock();
+        try {
+            if (closed) {
+                return;
+            }
+            // Only mark the document closed once the mapping is actually gone.
+            // If close() throws, the navigator remains usable and a later
+            // close() call can retry the release instead of leaking the arena.
+            arena.close();
+            closed = true;
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 }

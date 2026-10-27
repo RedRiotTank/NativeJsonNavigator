@@ -17,6 +17,10 @@ import java.util.List;
  * when the requested member does not exist or the receiver has the wrong
  * type.</p>
  *
+ * <p>String contents are validated as UTF-8. Invalid, overlong, truncated or
+ * surrogate byte sequences throw {@link JsonParseException}, whether the
+ * surrounding string uses escape sequences or not.</p>
+ *
  * @since 1.0.0
  */
 public interface JsonValue {
@@ -44,9 +48,28 @@ public interface JsonValue {
      * Returns the raw JSON text of this value without decoding escapes or
      * removing any of its syntax.
      *
+     * <p>This materialises the complete value as a Java {@link String}. To
+     * validate a large value without copying it, use {@link #validate()}
+     * instead.</p>
+     *
      * @return the raw JSON text
      */
     String raw();
+
+    /**
+     * Validates this value and all of its descendants without materialising
+     * them.
+     *
+     * <p>This performs a complete structural pass over the value, including
+     * UTF-8 validation of string contents, but does not copy the JSON text
+     * into the Java heap. Call it when the goal is to verify a value or a
+     * whole document rather than read it.</p>
+     *
+     * @throws JsonParseException if the value is not valid JSON
+     * @throws IllegalStateException if the owning document has been closed
+     * @since 1.0.1
+     */
+    void validate();
 
     /**
      * Returns this value as an {@code int}.

@@ -5,14 +5,20 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -20,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class JsonDocumentTest {
 
@@ -319,7 +326,217 @@ class JsonDocumentTest {
         document.close();
         assertThrows(IllegalStateException.class, value::asString);
         assertThrows(IllegalStateException.class, document::root);
+        assertThrows(IllegalStateException.class, document::validate);
         document = null;
+    }
+
+    @Test
+    void failedOpensReleaseTheArena() throws Exception {
+        Path empty = writeJson(tempDir, "leak-empty.json", "");
+        Path whitespace = writeJson(tempDir, "leak-whitespace.json", "  \n\t ");
+        Path bomOnly = tempDir.resolve("leak-bom.json");
+        Files.write(bomOnly, new byte[] {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
+        Path invalidStart = writeJson(tempDir, "leak-invalid.json", "}");
+
+        for (Path file : List.of(empty, whitespace, bomOnly, invalidStart)) {
+            TrackingArena arena = new TrackingArena();
+            assertThrows(JsonParseException.class, () -> new JsonNavigator(file, arena), file.toString());
+            assertTrue(arena.isClosed(), "arena should be closed after rejecting " + file);
+        }
+    }
+
+    @Test
+    void failedCloseLeavesTheNavigatorUsableAndCanBeRetried() throws Exception {
+        Path file = writeJson(tempDir, "retry-close.json", "{\"a\":1}");
+        FailingArena arena = new FailingArena(1);
+        JsonNavigator navigator = new JsonNavigator(file, arena);
+        try {
+            assertThrows(IllegalStateException.class, navigator::close);
+
+            // The failed close must not mark the document closed or lose the mapping.
+            assertEquals(JsonType.OBJECT, navigator.typeOf(navigator.rootPointer()));
+
+            navigator.close();
+            navigator.close();
+            assertTrue(arena.isClosed());
+            assertEquals(2, arena.closeAttempts(), "close should be retried exactly once");
+            assertThrows(IllegalStateException.class, () -> navigator.typeOf(navigator.rootPointer()));
+        } finally {
+            if (!arena.isClosed()) {
+                navigator.close();
+            }
+        }
+    }
+
+    @Test
+    void validateChecksTheWholeDocumentWithoutRaw() throws Exception {
+        document.validate();
+        document.root().validate();
+
+        Path malformed = writeJson(tempDir, "validate-bad.json", "{\"a\":1,}");
+        try (JsonDocument malformedDoc = JsonDocument.open(malformed)) {
+            assertThrows(JsonParseException.class, malformedDoc::validate);
+            assertThrows(JsonParseException.class, () -> malformedDoc.root().validate());
+        }
+    }
+
+    @Test
+    void validateCanCheckASingleSubtree() throws Exception {
+        Path file = writeJson(tempDir, "validate-subtree.json", "{\"ok\":1,\"bad\":}");
+        try (JsonDocument doc = JsonDocument.open(file)) {
+            doc.root().get("ok").validate();
+            assertThrows(JsonParseException.class, doc::validate);
+        }
+    }
+
+    @Test
+    void rejectsInvalidUtf8InUnescapedStrings() throws Exception {
+        assertInvalidUtf8(bytes("{\"s\":\"", new byte[] {(byte) 0xC3, 0x28}, "\"}"));
+        assertInvalidUtf8(bytes("{\"s\":\"", new byte[] {(byte) 0xC0, (byte) 0xAF}, "\"}"));
+        assertInvalidUtf8(bytes("{\"s\":\"", new byte[] {(byte) 0xE2, (byte) 0x82}, "\"}"));
+        assertInvalidUtf8(bytes("{\"s\":\"", new byte[] {(byte) 0xED, (byte) 0xA0, (byte) 0x80}, "\"}"));
+    }
+
+    @Test
+    void rejectsInvalidUtf8InEscapedStrings() throws Exception {
+        assertInvalidUtf8(bytes("{\"s\":\"", new byte[] {(byte) 0xC3, 0x28}, "\\u0041\"}"));
+        assertInvalidUtf8(bytes("{\"s\":\"\\u0041", new byte[] {(byte) 0xC3, 0x28}, "\"}"));
+    }
+
+    private void assertInvalidUtf8(byte[] content) throws Exception {
+        Path file = tempDir.resolve("invalid-utf8-" + Arrays.hashCode(content) + ".json");
+        Files.write(file, content);
+        try (JsonDocument doc = JsonDocument.open(file)) {
+            assertThrows(JsonParseException.class, doc::validate);
+            assertThrows(JsonParseException.class, () -> doc.root().raw());
+            assertThrows(JsonParseException.class, () -> doc.find("s").asString());
+        }
+    }
+
+    private static byte[] bytes(String prefix, byte[] invalid, String suffix) {
+        byte[] prefixBytes = prefix.getBytes(StandardCharsets.UTF_8);
+        byte[] suffixBytes = suffix.getBytes(StandardCharsets.UTF_8);
+        byte[] result = new byte[prefixBytes.length + invalid.length + suffixBytes.length];
+        System.arraycopy(prefixBytes, 0, result, 0, prefixBytes.length);
+        System.arraycopy(invalid, 0, result, prefixBytes.length, invalid.length);
+        System.arraycopy(suffixBytes, 0, result, prefixBytes.length + invalid.length, suffixBytes.length);
+        return result;
+    }
+
+    @Test
+    void validateScansLargeDocumentsWithoutCopyingThem() throws Exception {
+        Path javaBinary = Path.of(System.getProperty("java.home"), "bin",
+                System.getProperty("os.name").toLowerCase().contains("win") ? "java.exe" : "java");
+        assumeTrue(Files.isExecutable(javaBinary), "java executable not available");
+
+        String classpath = System.getProperty("surefire.test.class.path");
+        if (classpath == null || classpath.isBlank()) {
+            classpath = System.getProperty("java.class.path");
+        }
+
+        Path file = tempDir.resolve("large-validate.json");
+        writeLargeJson(file, 64L * 1024 * 1024);
+
+        Process process = new ProcessBuilder(
+                javaBinary.toString(),
+                "-Xmx64m",
+                "-cp",
+                classpath,
+                LargeDocumentValidationMain.class.getName(),
+                file.toString())
+                .redirectErrorStream(true)
+                .start();
+        boolean finished = process.waitFor(120, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+        }
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertTrue(finished, "large-document validation timed out");
+        assertEquals(0, process.exitValue(), output);
+    }
+
+    private static void writeLargeJson(Path file, long payloadBytes) throws IOException {
+        try (BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
+            writer.write("{\"payload\":\"");
+            char[] chunk = new char[64 * 1024];
+            Arrays.fill(chunk, 'a');
+            long remaining = payloadBytes;
+            while (remaining > 0) {
+                int count = (int) Math.min(chunk.length, remaining);
+                writer.write(chunk, 0, count);
+                remaining -= count;
+            }
+            writer.write("\"}");
+        }
+    }
+
+    private static final class TrackingArena implements Arena {
+
+        private final Arena delegate = Arena.ofShared();
+        private volatile boolean closed;
+
+        @Override
+        public MemorySegment allocate(long byteSize, long byteAlignment) {
+            return delegate.allocate(byteSize, byteAlignment);
+        }
+
+        @Override
+        public MemorySegment.Scope scope() {
+            return delegate.scope();
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
+            closed = true;
+        }
+
+        boolean isClosed() {
+            return closed;
+        }
+    }
+
+    private static final class FailingArena implements Arena {
+
+        private final Arena delegate = Arena.ofShared();
+        private int remainingFailures;
+        private int closeAttempts;
+        private boolean closed;
+
+        FailingArena(int failures) {
+            this.remainingFailures = failures;
+        }
+
+        @Override
+        public MemorySegment allocate(long byteSize, long byteAlignment) {
+            return delegate.allocate(byteSize, byteAlignment);
+        }
+
+        @Override
+        public MemorySegment.Scope scope() {
+            return delegate.scope();
+        }
+
+        @Override
+        public void close() {
+            closeAttempts++;
+            if (remainingFailures > 0) {
+                remainingFailures--;
+                throw new IllegalStateException("injected close failure");
+            }
+            if (!closed) {
+                delegate.close();
+                closed = true;
+            }
+        }
+
+        boolean isClosed() {
+            return closed;
+        }
+
+        int closeAttempts() {
+            return closeAttempts;
+        }
     }
 
     @Test

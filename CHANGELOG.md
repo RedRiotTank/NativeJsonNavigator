@@ -5,6 +5,35 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-10-28
+
+### Added
+
+- `JsonDocument.validate()` and `JsonValue.validate()` for full validation
+  without materialising or copying the document. This replaces the previous
+  `root().raw()` recommendation, which allocated the entire document and could
+  exhaust the heap on large files.
+
+### Fixed
+
+- Native mappings are now released when `JsonDocument.open` rejects an empty,
+  whitespace-only, BOM-only or otherwise invalid initial document. Previously
+  each rejected open leaked one mapping.
+- Invalid UTF-8 in strings is rejected consistently whether the string contains
+  escape sequences or not. Invalid, overlong, truncated and surrogate byte
+  sequences now throw `JsonParseException` instead of being replaced with
+  U+FFFD.
+- `JsonDocument.close()` now waits for in-flight reads instead of racing them,
+  and only marks the document closed after the mapping is released. A failed
+  `close()` leaves the document usable and can be retried instead of leaking
+  the mapping permanently.
+
+### Changed
+
+- `JsonParseException` and README guidance now point to `validate()` for full
+  validation of large documents.
+- Documented the thread-safety and retry guarantees of `close()`.
+
 ## [1.0.0] - 2026-10-27
 
 ### Added
@@ -41,4 +70,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Memory and reference leaks on mapping failures.
 - Key matching for non-ASCII keys and escaped keys.
 
+[1.0.1]: https://github.com/RedRiotTank/NativeJsonNavigator/releases/tag/v1.0.1
 [1.0.0]: https://github.com/RedRiotTank/NativeJsonNavigator/releases/tag/v1.0.0

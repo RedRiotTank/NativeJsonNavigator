@@ -4,8 +4,9 @@ package io.github.redriottank.nativejson;
  * Thrown when the underlying document is not valid JSON.
  *
  * <p>The parser validates only the parts of the document that are actually
- * navigated. Call {@link JsonDocument#root()} followed by
- * {@link JsonValue#raw()} to force a full validation pass.</p>
+ * navigated. Call {@link JsonDocument#validate()} to force a full validation
+ * pass without copying the document, or {@link JsonValue#validate()} to
+ * validate a single value and its descendants.</p>
  *
  * @since 1.0.0
  */

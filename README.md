@@ -58,8 +58,8 @@ public class Main {
 }
 ```
 
-`JsonDocument` implements `AutoCloseable`: closing it immediately releases the
-native mapping.
+`JsonDocument` implements `AutoCloseable`: closing it releases the native
+mapping as soon as any in-flight reads have finished.
 
 ## Why another JSON parser?
 
@@ -91,7 +91,7 @@ Native JSON Navigator takes a different approach:
 | Encoding | UTF-8 (an optional UTF-8 BOM is accepted) |
 | Maximum file size | 2 GiB (32-bit offsets) |
 | Access | Read-only |
-| Thread safety | Concurrent reads are safe; do not close while reading |
+| Thread safety | Concurrent reads are safe; `close()` waits for in-flight reads |
 | Thread confinement | None: documents use a shared arena |
 
 ## API overview
@@ -102,10 +102,12 @@ Native JSON Navigator takes a different approach:
 | `JsonDocument.find(String)` | Reads a top-level member (shorthand for `root().get(key)`). |
 | `JsonDocument.root()` | Returns the root `JsonValue`. |
 | `JsonDocument.byteSize()` / `path()` | File metadata. |
-| `JsonDocument.close()` | Releases the mapping; idempotent. |
+| `JsonDocument.close()` | Releases the mapping; idempotent and retry-safe. |
+| `JsonDocument.validate()` | Validates the whole document without copying it. |
 | `JsonValue.type()` | Returns `OBJECT`, `ARRAY`, `STRING`, `NUMBER`, `BOOLEAN` or `NULL`. |
 | `asString()` | Decodes a string (including escapes), or returns the raw token for other types. |
-| `raw()` | Returns the verbatim JSON text of the value. |
+| `raw()` | Returns the verbatim JSON text of the value (copies the value). |
+| `validate()` | Validates a value and its descendants without copying them. |
 | `asInt()` / `asLong()` / `asDouble()` | Parses numbers without intermediate strings (except `asDouble`). |
 | `asBoolean()` | Reads `true` / `false`. |
 | `isNull()` / `isObject()` / `isArray()` / `isString()` / `isNumber()` / `isBoolean()` | Type checks. |
@@ -120,10 +122,17 @@ Native JSON Navigator takes a different approach:
 * `JsonParseException` is thrown for malformed JSON. It exposes the byte
   `offset()` where the problem was found.
 * Navigation is lazy, so only the traversed part of the document is validated.
-  Call `doc.root().raw()` to force a full structural validation pass.
+  Call `doc.validate()` to force a full structural pass without copying the
+  document, or `value.validate()` to validate a single value and its
+  descendants.
+* String contents are validated as UTF-8. Invalid, overlong, truncated or
+  surrogate byte sequences throw `JsonParseException`, whether they appear in
+  escaped or unescaped strings.
 * Calling `asInt()`, `asBoolean()`, `size()`, etc. on the wrong type throws
   `IllegalStateException`.
-* Reading a value after `close()` throws `IllegalStateException`.
+* Reading a value after `close()` throws `IllegalStateException`. `close()`
+  waits for in-flight reads; if releasing the mapping fails, the document stays
+  open and `close()` can be retried.
 
 ## Performance
 

@@ -32,6 +32,11 @@ final class JsonValueImpl implements JsonValue {
     }
 
     @Override
+    public void validate() {
+        navigator.validate(pointer);
+    }
+
+    @Override
     public int asInt() {
         return navigator.asInt(pointer);
     }

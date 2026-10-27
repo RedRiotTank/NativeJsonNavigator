@@ -12,9 +12,12 @@ import java.util.Objects;
  * object allocation happens up front; values are validated and materialised
  * only when they are read.</p>
  *
- * <p>Instances are thread-safe for concurrent reads. Do not close a document
- * while another thread is still reading from it. {@link #close()} is
- * idempotent and releases the native mapping immediately.</p>
+ * <p>Instances are thread-safe for concurrent reads. {@link #close()} is
+ * idempotent: it waits for in-flight reads to finish and releases the native
+ * mapping immediately afterwards. Reads that start after the document is
+ * closed throw {@link IllegalStateException}. If the mapping cannot be
+ * released, {@code close()} throws and the document remains open, so the call
+ * can be retried.</p>
  *
  * <pre>{@code
  * try (JsonDocument doc = JsonDocument.open(Path.of("data.json"))) {
@@ -91,6 +94,23 @@ public final class JsonDocument implements AutoCloseable {
     }
 
     /**
+     * Validates the complete document without materialising it.
+     *
+     * <p>This performs a full structural pass over the mapped bytes, including
+     * UTF-8 validation of string contents, without copying the document into
+     * the Java heap. It is the preferred way to verify a large file; calling
+     * {@link JsonValue#raw()} on the root achieves the same validation but
+     * also allocates a {@code String} containing the whole document.</p>
+     *
+     * @throws JsonParseException    if the document is not valid JSON
+     * @throws IllegalStateException if the document has been closed
+     * @since 1.0.1
+     */
+    public void validate() {
+        navigator.validate(navigator.rootPointer());
+    }
+
+    /**
      * Returns the size of the mapped file in bytes.
      *
      * @return the file size
@@ -109,8 +129,11 @@ public final class JsonDocument implements AutoCloseable {
     }
 
     /**
-     * Releases the memory mapping. Calling this method more than once has no
-     * effect.
+     * Releases the memory mapping.
+     *
+     * <p>This method is idempotent and waits for in-flight reads to finish.
+     * If releasing the mapping fails, the document stays open and this method
+     * can be called again.</p>
      */
     @Override
     public void close() {
