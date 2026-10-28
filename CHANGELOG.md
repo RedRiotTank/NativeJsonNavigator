@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Updated release documentation and verified Maven Central metadata checks.
 
 ### Quality & Hardening
+- Expanded CI matrix across multi-OS (Linux, Windows, macOS) on JDK 22 and JDK 25 LTS.
+- Added SpotBugs (`spotbugs-maven-plugin`) for static bytecode analysis with zero tolerance for high/medium bugs.
+- Added japicmp (`japicmp-maven-plugin`) to enforce binary and source backward compatibility on public APIs against release 1.0.1.
+- Added JaCoCo (`jacoco-maven-plugin`) for automated test suite coverage generation.
+- Added `.gitattributes` for consistent cross-platform line ending normalization.
+- Switched SCM connection from `git://` to secure `https://`.
 - Hardened release automation: require master branch and validated release tags for workflow dispatch.
 - Enforced validation of `<scm><tag>` matching release version `v$VERSION` in `validate-release.sh`.
 - Added SHA-256 supply-chain checksum verification for Maven wrapper distribution.

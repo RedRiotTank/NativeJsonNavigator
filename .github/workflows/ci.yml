@@ -10,11 +10,15 @@ permissions:
 
 jobs:
   build:
-    name: Build (Java ${{ matrix.java }})
-    runs-on: ubuntu-latest
+    name: Build (Java ${{ matrix.java }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
         java: [22, 25]
 
     steps:
@@ -28,10 +32,11 @@ jobs:
           java-version: ${{ matrix.java }}
           cache: maven
 
-      - name: Verify
+      - name: Verify (tests, JaCoCo, SpotBugs, japicmp, JPMS)
         run: ./mvnw -B -ntp verify
 
       - name: Validate release scripts
+        if: matrix.os == 'ubuntu-latest' && matrix.java == '22'
         run: |
           bash -n scripts/release.sh
           bash -n scripts/validate-release.sh
