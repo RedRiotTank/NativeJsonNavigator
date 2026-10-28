@@ -33,7 +33,17 @@ jobs:
           cache: maven
 
       - name: Verify (tests, JaCoCo, SpotBugs, japicmp, JPMS)
-        run: ./mvnw -B -ntp verify
+        run: ./mvnw -B -ntp verify -e
+
+      - name: Dump surefire reports on failure
+        if: failure()
+        run: |
+          for f in target/surefire-reports/*.txt; do
+            if [ -f "$f" ]; then
+              echo "=== $f ==="
+              cat "$f"
+            fi
+          done
 
       - name: Validate release scripts
         if: matrix.os == 'ubuntu-latest' && matrix.java == '22'
