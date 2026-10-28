@@ -325,9 +325,19 @@ class JsonDocumentTest {
         document.close();
         document.close();
         assertThrows(IllegalStateException.class, value::asString);
+        assertThrows(IllegalStateException.class, value::findPath);
         assertThrows(IllegalStateException.class, document::root);
         assertThrows(IllegalStateException.class, document::validate);
         document = null;
+    }
+
+    @Test
+    void rejectsNullArguments() {
+        assertThrows(NullPointerException.class, () -> JsonDocument.open((Path) null));
+        assertThrows(NullPointerException.class, () -> JsonDocument.open((String) null));
+        assertThrows(IllegalArgumentException.class, () -> document.root().get(null));
+        assertThrows(IllegalArgumentException.class, () -> document.root().findPath((String[]) null));
+        assertThrows(IllegalArgumentException.class, () -> document.root().findPath((String) null));
     }
 
     @Test

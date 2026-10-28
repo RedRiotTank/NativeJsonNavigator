@@ -116,6 +116,7 @@ final class JsonValueImpl implements JsonValue {
         if (path == null) {
             throw new IllegalArgumentException("path must not be null");
         }
+        navigator.ensureOpen();
         JsonValue current = this;
         for (String segment : path) {
             if (segment == null) {

@@ -179,6 +179,9 @@ verbose "Downloading to: $TMP_DOWNLOAD_DIR/$distributionUrlName"
 if ! command -v unzip >/dev/null; then
   distributionUrl="${distributionUrl%.zip}.tar.gz"
   distributionUrlName="${distributionUrl##*/}"
+  if [ "$distributionSha256Sum" = "0d7125e8c91097b36edb990ea5934e6c68b4440eef4ea96510a0f6815e7eeadb" ]; then
+    distributionSha256Sum="4b7195b6a4f5c81af4c0212677a32ee8143643401bc6e1e8412e6b06ea82beac"
+  fi
 fi
 
 # verbose opt
