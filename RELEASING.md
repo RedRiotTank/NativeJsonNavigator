@@ -83,6 +83,7 @@ Both the script and `.github/workflows/release.yml` run
 
 * the tag is not exactly `v` + the `pom.xml` version (for example release
   `v1.1.0` with `<version>1.0.0</version>`);
+* the `<scm><tag>` in `pom.xml` does not match `v` + the `pom.xml` version;
 * the version is a `SNAPSHOT` or is not a valid release version;
 * the groupId/artifactId are not
   `io.github.redriottank:native-json-navigator`;

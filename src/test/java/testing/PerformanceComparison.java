@@ -65,6 +65,21 @@ public class PerformanceComparison {
         return node != null ? node.asString() : null;
     }
 
+    @Benchmark
+    public String testJacksonFile() throws Exception {
+        JsonNode node = jacksonMapper.readTree(Path.of(currentFile).toFile());
+        JsonNode result = node.get(targetKey);
+        return result != null ? result.asText() : null;
+    }
+
+    @Benchmark
+    public String testNativeFileOpenAndFind() throws Exception {
+        try (JsonDocument doc = JsonDocument.open(currentFile)) {
+            JsonValue node = doc.find(targetKey);
+            return node != null ? node.asString() : null;
+        }
+    }
+
     @TearDown(Level.Trial)
     public void tearDown() throws Exception {
         if (nativeDocument != null) {

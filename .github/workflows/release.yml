@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish (must match v<version> on refs/heads/master)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -18,15 +23,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Guard release dispatch branch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [[ "${{ github.ref }}" != "refs/heads/master" ]]; then
+            echo "::error::Manual release dispatch is restricted to refs/heads/master (triggered from ${{ github.ref }})."
+            exit 1
+          fi
+
       - name: Validate version and tag
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           if [[ "$EVENT_NAME" == "release" ]]; then
             ./scripts/validate-release.sh --tag "$REF_NAME"
           else
-            ./scripts/validate-release.sh
+            ./scripts/validate-release.sh --tag "$INPUT_TAG"
           fi
 
       - name: Set up JDK and GPG

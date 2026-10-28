@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Documentation
+- Corrected `JsonValue.get` documentation: this library returns the first occurrence of duplicate keys, while `keys()` and `size()` preserve duplicates.
+- Documented linear-scan complexities ($O(n)$) and allocation profiles for `get`, `getAt`, `findPath`, `keys`, and `size`.
+- Described exact JMH benchmark methodology (comparing off-heap lazy point navigation against full in-memory tree deserialization).
+- Updated release documentation and verified Maven Central metadata checks.
+
+### Quality & Hardening
+- Hardened release automation: require master branch and validated release tags for workflow dispatch.
+- Enforced validation of `<scm><tag>` matching release version `v$VERSION` in `validate-release.sh`.
+- Added SHA-256 supply-chain checksum verification for Maven wrapper distribution.
+- Improved release script portability (removed GNU `sort -V` and `seq` dependencies) and added prerelease flag support.
+- Added JPMS module path verification integration test (`ModulePathIntegrationTest`).
+- Cleaned tracked IDE metadata (`.idea/`) and relocated sample datasets to `src/test/resources`.
+
 ## [1.0.1] - 2026-10-28
 
 ### Added
@@ -17,8 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - Native mappings are now released when `JsonDocument.open` rejects an empty,
-  whitespace-only, BOM-only or otherwise invalid initial document. Previously
-  each rejected open leaked one mapping.
+  whitespace-only, BOM-only or otherwise invalid initial document.
 - Invalid UTF-8 in strings is rejected consistently whether the string contains
   escape sequences or not. Invalid, overlong, truncated and surrogate byte
   sequences now throw `JsonParseException` instead of being replaced with

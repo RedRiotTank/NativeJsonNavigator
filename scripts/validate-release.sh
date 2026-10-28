@@ -8,6 +8,7 @@
 # Checks:
 #   - coordinates are the expected Maven Central coordinates
 #   - version is a valid, non-SNAPSHOT release version
+#   - <scm><tag> in pom.xml matches v + version
 #   - when --tag is given, tag must be exactly "v" + version
 #   - the version is not already published on Maven Central
 #
@@ -37,7 +38,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -h|--help)
-      sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -78,6 +79,18 @@ PY
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] \
   || fail "Version '$VERSION' is not a valid semver-like release version"
 [[ "$VERSION" != *SNAPSHOT* ]] || fail "SNAPSHOT versions cannot be published to Maven Central"
+
+SCM_TAG=$(python3 - <<'PY'
+import xml.etree.ElementTree as ET
+ns = {"m": "http://maven.apache.org/POM/4.0.0"}
+root = ET.parse("pom.xml").getroot()
+scm = root.find("m:scm", ns)
+tag = scm.find("m:tag", ns) if scm is not None else None
+print(tag.text.strip() if tag is not None and tag.text else "")
+PY
+)
+[[ -n "$SCM_TAG" ]] || fail "<scm><tag> is missing in pom.xml"
+[[ "$SCM_TAG" == "v$VERSION" ]] || fail "<scm><tag> '$SCM_TAG' in pom.xml does not match 'v$VERSION'"
 
 if [[ -n "$TAG" ]]; then
   [[ "$TAG" == "v$VERSION" ]] || fail "Tag '$TAG' does not match pom version '$VERSION' (expected 'v$VERSION')"

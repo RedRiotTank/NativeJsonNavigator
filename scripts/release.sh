@@ -20,6 +20,9 @@
 #   --wait          Wait for the release workflow and report the result.
 #   --dry-run       Print the plan without changing anything.
 #   --yes, -y       Skip the confirmation prompt.
+#   --prerelease    Mark release as prerelease on GitHub.
+#   --draft         Create release as a draft on GitHub.
+#   --sign, -s      Sign the git tag with GPG (git tag -s).
 #
 set -euo pipefail
 
@@ -28,10 +31,13 @@ NOTES_FILE=""
 DRY_RUN=false
 ASSUME_YES=false
 WAIT=false
+PRERELEASE=false
+DRAFT=false
+SIGN_TAG=false
 VERSION=""
 
 usage() {
-  sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 fail() {
@@ -56,6 +62,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --yes|-y)
       ASSUME_YES=true
+      shift
+      ;;
+    --prerelease)
+      PRERELEASE=true
+      shift
+      ;;
+    --draft)
+      DRAFT=true
+      shift
+      ;;
+    --sign|-s)
+      SIGN_TAG=true
       shift
       ;;
     -h|--help)
@@ -97,8 +115,21 @@ PY
 )
 
 if [[ "$VERSION" != "$CURRENT_VERSION" ]]; then
-  NEWEST=$(printf '%s\n%s\n' "$CURRENT_VERSION" "$VERSION" | sort -V | tail -n1)
-  [[ "$NEWEST" == "$VERSION" ]] || fail "New version $VERSION is lower than current version $CURRENT_VERSION"
+  IS_VALID=$(python3 - "$CURRENT_VERSION" "$VERSION" <<'PY'
+import sys, re
+
+def to_tuple(v):
+    parts = re.split(r'[-.]', v)
+    res = []
+    for p in parts:
+        res.append((0, int(p), '') if p.isdigit() else (1, 0, p))
+    return res
+
+curr, new = sys.argv[1], sys.argv[2]
+print("true" if to_tuple(new) >= to_tuple(curr) else "false")
+PY
+)
+  [[ "$IS_VALID" == "true" ]] || fail "New version $VERSION is lower than current version $CURRENT_VERSION"
 fi
 
 git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null && fail "Tag v$VERSION already exists"
@@ -196,19 +227,31 @@ if ! git diff --cached --quiet; then
 else
   echo "No file changes to commit (version already set)."
 fi
-git tag -a "v$VERSION" -m "Native JSON Navigator $VERSION"
+TAG_FLAG="-a"
+if [[ "$SIGN_TAG" == true ]]; then
+  TAG_FLAG="-s"
+fi
+git tag $TAG_FLAG "v$VERSION" -m "Native JSON Navigator $VERSION"
 
 echo "==> Pushing master and v$VERSION"
 git push origin master
 git push origin "v$VERSION"
 
 echo "==> Publishing GitHub release (triggers Maven Central deployment)"
+RELEASE_FLAGS=()
+if [[ "$PRERELEASE" == true || "$VERSION" =~ [-] ]]; then
+  RELEASE_FLAGS+=(--prerelease)
+fi
+if [[ "$DRAFT" == true ]]; then
+  RELEASE_FLAGS+=(--draft)
+fi
+
 if [[ -n "$NOTES_FILE" ]]; then
   gh release create "v$VERSION" --repo "$REPO" \
-    --title "Native JSON Navigator $VERSION" --notes-file "$NOTES_FILE"
+    --title "Native JSON Navigator $VERSION" --notes-file "$NOTES_FILE" "${RELEASE_FLAGS[@]}"
 else
   gh release create "v$VERSION" --repo "$REPO" \
-    --title "Native JSON Navigator $VERSION" --generate-notes
+    --title "Native JSON Navigator $VERSION" --generate-notes "${RELEASE_FLAGS[@]}"
 fi
 
 echo
@@ -218,7 +261,7 @@ echo "Maven Central publication runs in .github/workflows/release.yml."
 if [[ "$WAIT" == true ]]; then
   echo "==> Waiting for the release workflow"
   RUN_ID=""
-  for _ in $(seq 1 30); do
+  for ((attempt = 1; attempt <= 30; attempt++)); do
     RUN_ID=$(gh run list --repo "$REPO" --workflow release.yml --limit 20 \
       --json databaseId,headBranch,event \
       --jq "map(select(.headBranch == \"v$VERSION\" and .event == \"release\")) | .[0].databaseId // empty")

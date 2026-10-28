@@ -124,9 +124,11 @@ public class Application {
 
 Microbenchmarks were conducted using [JMH (Java Microbenchmark Harness)](https://github.com/openjdk/jmh) comparing **Native JSON Navigator** against **Jackson Databind 2.17.0**.
 
+> **What is measured:** This benchmark compares **lazy point-navigation** against **full in-memory tree deserialization**. Native JSON Navigator navigates the memory-mapped file off-heap to locate target keys without building an object graph (`doc.find(targetKey)`), whereas Jackson parses the entire JSON payload into an in-memory `JsonNode` tree (`jacksonMapper.readTree(jsonContent)`). This measures real-world selective query workloads (e.g. log ingestion, telemetry extraction, and point reads on large documents).
+
 * **Hardware:** AMD Ryzen 7 7800X3D (8 Cores / 16 Threads @ 4.20 GHz)
 * **OS / Runtime:** Linux 6.x / Windows 11, OpenJDK 22 (64-Bit Server VM)
-* **Workload:** Open file, navigate to target nested keys/arrays, extract scalar values.
+* **Workload:** Open file/buffer, navigate to target nested keys/arrays, extract scalar values.
 
 ### Execution Time (Lower is better)
 
@@ -190,6 +192,16 @@ Traditional parsers convert an entire byte stream into heaps of `String`, `Map$N
 3. **On-Demand Value Decoding:** Numbers, booleans, and nulls are evaluated directly on the raw bytes without intermediate `java.lang.String` construction.
 4. **Shared Arena Lifecycle:** Multiple threads can read concurrently without locks. Invoking `close()` synchronizes with in-flight readers via reader-writer semantics and safely releases the off-heap mapping.
 
+### Computational Complexity & Allocations
+
+* **Linear Scans ($O(n)$):** Container operations (`get`, `getAt`, `keys`, and `size`) perform a linear scan from the start of the container. Repeated random access via `getAt(i)` rescans preceding elements.
+* **Path Navigation:** `findPath(segments...)` has a complexity of $O(\sum \text{container scan lengths})$ across the traversed segments.
+* **Allocation Profile:**
+  - **Zero heap allocations:** `asInt()`, `asLong()`, `asBoolean()`, `isNull()`, `type()`, `size()`, `validate()`.
+  - **Lightweight views:** `get(key)`, `getAt(index)`, and each step of `findPath(...)` allocate a single ephemeral `JsonValue` flyweight object (wrapping primitive pointer offsets).
+  - **Materializations:** `asString()` and `raw()` allocate a `String`; `keys()` allocates an `ArrayList<String>`.
+* **Duplicate Keys:** `get(key)` returns the **first occurrence**; `keys()` and `size()` preserve and count all duplicate occurrences.
+
 ---
 
 ## Technical Specifications & Limits
@@ -213,7 +225,7 @@ Traditional parsers convert an entire byte stream into heaps of `String`, `Map$N
 | :--- | :--- | :--- |
 | `open(Path path)` / `open(String path)` | `JsonDocument` | Memory-maps a UTF-8 JSON file. |
 | `root()` | `JsonValue` | Returns the root value (`OBJECT`, `ARRAY`, etc.). |
-| `find(String key)` | `JsonValue` | Shorthand for `root().get(key)`. |
+| `find(String key)` | `JsonValue` | Shorthand for `root().get(key)` ($O(n)$ scan). |
 | `byteSize()` | `long` | Total byte size of the mapped file. |
 | `path()` | `Path` | Source file path. |
 | `validate()` | `void` | Structural validation pass across the entire document without copying. |
@@ -224,18 +236,18 @@ Traditional parsers convert an entire byte stream into heaps of `String`, `Map$N
 | Method | Return Type | Description |
 | :--- | :--- | :--- |
 | `type()` | `JsonType` | `OBJECT`, `ARRAY`, `STRING`, `NUMBER`, `BOOLEAN`, or `NULL`. |
-| `get(String key)` | `JsonValue` | Looks up an object member by key; returns `null` if absent. |
-| `getAt(int index)` | `JsonValue` | Looks up an array element by index; returns `null` if out of bounds. |
-| `findPath(String... tokens)` | `JsonValue` | Multi-hop traversal mixing keys and indices (e.g. `findPath("a", "0", "b")`). |
-| `asString()` | `String` | Decodes JSON string (unescaping characters) or returns raw token text. |
-| `asInt()` / `asLong()` | `int` / `long` | Direct byte-to-integer parsing without intermediate strings. |
+| `get(String key)` | `JsonValue` | Linear scan ($O(n)$); returns first occurrence of key or `null`. Allocates a view. |
+| `getAt(int index)` | `JsonValue` | Linear scan ($O(n)$); returns element at index or `null`. Allocates a view. |
+| `findPath(String... tokens)` | `JsonValue` | Multi-hop traversal ($O(\sum \text{scans})$). Allocates intermediate views. |
+| `asString()` | `String` | Decodes JSON string (unescaping characters) or returns raw token text (allocates `String`). |
+| `asInt()` / `asLong()` | `int` / `long` | Direct byte-to-integer parsing (zero allocation). |
 | `asDouble()` | `double` | Parses floating point value. |
-| `asBoolean()` | `boolean` | Direct boolean extraction (`true`/`false`). |
-| `isNull()` | `boolean` | `true` if current token is JSON `null`. |
+| `asBoolean()` | `boolean` | Direct boolean extraction (`true`/`false`, zero allocation). |
+| `isNull()` | `boolean` | `true` if current token is JSON `null` (zero allocation). |
 | `isObject()` / `isArray()` | `boolean` | Type predicate helpers. |
-| `size()` | `int` | Element count for arrays or member count for objects ($O(n)$). |
-| `keys()` | `List<String>` | List of object keys preserved in document order. |
-| `raw()` | `String` | Returns verbatim JSON slice (allocates string). |
+| `size()` | `int` | Element count for arrays or member count for objects ($O(n)$, zero allocation). |
+| `keys()` | `List<String>` | List of object keys preserved in document order ($O(n)$, allocates `List<String>`). |
+| `raw()` | `String` | Returns verbatim JSON slice (allocates `String`). |
 | `validate()` | `void` | Validates current value and subtree without memory allocation. |
 
 ---

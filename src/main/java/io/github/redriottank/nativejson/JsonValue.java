@@ -150,7 +150,10 @@ public interface JsonValue {
 
     /**
      * Returns the number of members of an object or elements of an array.
-     * This is an O(n) operation that scans the container.
+     * This is an O(n) operation that linearly scans the container with zero
+     * allocations.
+     *
+     * <p>For objects with duplicate keys, each key occurrence is counted.</p>
      *
      * @return the member/element count
      * @throws IllegalStateException if this value is not an object or array
@@ -160,6 +163,9 @@ public interface JsonValue {
     /**
      * Returns the member names of an object in document order.
      *
+     * <p>This is an O(n) operation that scans the object and allocates a new
+     * {@link List} containing decoded key strings. Duplicate keys are preserved.</p>
+     *
      * @return an immutable list of field names; empty for an empty object
      * @throws IllegalStateException if this value is not an object
      */
@@ -168,8 +174,11 @@ public interface JsonValue {
     /**
      * Looks up a member of this JSON object.
      *
-     * <p>If duplicate keys are present, the first occurrence wins, matching
-     * the behaviour of most JSON parsers.</p>
+     * <p>This is an O(n) linear scan from the beginning of the object. If
+     * duplicate keys are present, this library returns the first occurrence;
+     * {@link #keys()} and {@link #size()} preserve duplicates. Returns a newly
+     * allocated {@link JsonValue} view instance, or {@code null} if the key is
+     * absent or this value is not an object.</p>
      *
      * @param key the member name
      * @return the member value, or {@code null} if absent or this is not an object
@@ -178,6 +187,11 @@ public interface JsonValue {
 
     /**
      * Returns the element at {@code index} of this JSON array.
+     *
+     * <p>This is an O(n) linear scan from the start of the array. Repeated random
+     * access by index will rescan preceding elements. Returns a newly allocated
+     * {@link JsonValue} view instance, or {@code null} if out of bounds or this is
+     * not an array.</p>
      *
      * @param index the zero-based element index
      * @return the element, or {@code null} if out of bounds or this is not an array
@@ -191,6 +205,10 @@ public interface JsonValue {
      * an array, and as an object key otherwise. For example
      * {@code doc.root().findPath("users", "0", "name")} reads the first user's
      * name.</p>
+     *
+     * <p>Complexity is O(sum of container scans) for the traversed segments.
+     * An intermediate {@link JsonValue} view instance is allocated for each segment
+     * in the path.</p>
      *
      * @param path the keys/indices to follow
      * @return the value at the path, or {@code null} if any segment is missing

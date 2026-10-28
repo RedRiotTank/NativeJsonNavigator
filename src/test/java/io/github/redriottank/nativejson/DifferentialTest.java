@@ -158,4 +158,23 @@ class DifferentialTest {
         }
         return array;
     }
+
+    @Test
+    void duplicateKeysBehavior() throws Exception {
+        String json = "{\"a\":1,\"a\":2}";
+        Path file = tempDir.resolve("duplicate-keys.json");
+        Files.writeString(file, json);
+
+        // Jackson returns the last occurrence: 2
+        JsonNode jacksonTree = mapper.readTree(json);
+        assertEquals(2, jacksonTree.get("a").asInt());
+
+        // Native JSON Navigator returns the first occurrence (1), but preserves duplicate keys in size() and keys()
+        try (JsonDocument doc = JsonDocument.open(file)) {
+            JsonValue root = doc.root();
+            assertEquals(1, root.get("a").asInt());
+            assertEquals(2, root.size());
+            assertEquals(List.of("a", "a"), root.keys());
+        }
+    }
 }
