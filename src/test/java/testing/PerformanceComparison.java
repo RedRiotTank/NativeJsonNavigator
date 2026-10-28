@@ -10,6 +10,8 @@ import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
+import org.openjdk.jmh.results.format.ResultFormatType;
+
 import java.io.BufferedWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,8 +21,8 @@ import java.util.concurrent.TimeUnit;
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 @State(Scope.Thread)
 @Fork(1)
-@Warmup(iterations = 2)
-@Measurement(iterations = 5)
+@Warmup(iterations = 2, time = 1, timeUnit = TimeUnit.SECONDS)
+@Measurement(iterations = 3, time = 1, timeUnit = TimeUnit.SECONDS)
 public class PerformanceComparison {
 
     @Param({
@@ -118,9 +120,12 @@ public class PerformanceComparison {
     }
 
     public static void main(String[] args) throws Exception {
+        String resultFile = System.getProperty("jmh.resultFile", "jmh-result.json");
         Options opt = new OptionsBuilder()
                 .include(PerformanceComparison.class.getSimpleName())
                 .addProfiler(GCProfiler.class)
+                .result(resultFile)
+                .resultFormat(ResultFormatType.JSON)
                 .build();
         new Runner(opt).run();
     }
