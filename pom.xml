@@ -64,6 +64,8 @@
         <jacoco-maven-plugin.version>0.8.12</jacoco-maven-plugin.version>
         <spotbugs-maven-plugin.version>4.8.6.6</spotbugs-maven-plugin.version>
         <japicmp-maven-plugin.version>0.23.1</japicmp-maven-plugin.version>
+        <spotbugs.skip>false</spotbugs.skip>
+        <jacoco.skip>false</jacoco.skip>
     </properties>
 
     <dependencies>
@@ -214,6 +216,9 @@
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>${jacoco-maven-plugin.version}</version>
+                <configuration>
+                    <skip>${jacoco.skip}</skip>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>
@@ -238,6 +243,7 @@
                     <effort>Max</effort>
                     <threshold>Medium</threshold>
                     <failOnError>true</failOnError>
+                    <skip>${spotbugs.skip}</skip>
                 </configuration>
                 <executions>
                     <execution>
@@ -345,6 +351,24 @@
                     <url>https://maven.pkg.github.com/RedRiotTank/NativeJsonNavigator</url>
                 </repository>
             </distributionManagement>
+        </profile>
+
+        <!--
+            JDK 23+ profile: SpotBugs and JaCoCo rely on bytecode manipulation (ASM)
+            which fails or emits warnings on newer/unreleased JDK class file versions
+            (e.g., class file major version 69 on Java 25).
+            Skip static bytecode analysis on JDK 23+ while continuing to execute
+            the full compiler, test suite, packaging, and japicmp verification.
+        -->
+        <profile>
+            <id>jdk23-plus</id>
+            <activation>
+                <jdk>[23,)</jdk>
+            </activation>
+            <properties>
+                <spotbugs.skip>true</spotbugs.skip>
+                <jacoco.skip>true</jacoco.skip>
+            </properties>
         </profile>
     </profiles>
 </project>
