@@ -32,7 +32,7 @@ final class JsonNavigator implements AutoCloseable {
     private static final byte CLOSE_BRACKET = ']';
 
     /** Guards against stack exhaustion on pathologically nested documents. */
-    private static final int MAX_NESTING_DEPTH = 1_000;
+    private static final int MAX_NESTING_DEPTH = 500;
 
     private final Arena arena;
     private final MemorySegment segment;
@@ -551,7 +551,11 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     private int skipValue(int position, int end) {
-        return skipValue(position, end, 0);
+        try {
+            return skipValue(position, end, 0);
+        } catch (StackOverflowError e) {
+            throw new JsonParseException("Maximum JSON nesting depth exceeded", position);
+        }
     }
 
     private int skipValue(int position, int end, int depth) {

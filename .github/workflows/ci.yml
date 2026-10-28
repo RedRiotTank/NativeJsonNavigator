@@ -42,6 +42,12 @@ jobs:
             if [ -f "$f" ]; then
               echo "=== $f ==="
               cat "$f"
+              {
+                echo "### $(basename "$f")"
+                echo '```'
+                cat "$f"
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
             fi
           done
 
