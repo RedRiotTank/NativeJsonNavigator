@@ -1,5 +1,8 @@
 package testing;
 
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.redriottank.nativejson.JsonDocument;
@@ -34,6 +37,7 @@ public class PerformanceComparison {
 
     private JsonDocument nativeDocument;
     private ObjectMapper jacksonMapper;
+    private JsonFactory jsonFactory;
     private String jsonContent;
 
     private String targetKey;
@@ -45,6 +49,7 @@ public class PerformanceComparison {
         nativeDocument = JsonDocument.open(currentFile);
 
         jacksonMapper = new ObjectMapper();
+        jsonFactory = new JsonFactory();
         jsonContent = Files.readString(Path.of(currentFile));
 
         if (currentFile.equals("project.json")) {
@@ -62,6 +67,19 @@ public class PerformanceComparison {
     }
 
     @Benchmark
+    public String testJacksonStreaming() throws Exception {
+        try (JsonParser parser = jsonFactory.createParser(jsonContent)) {
+            while (parser.nextToken() != null) {
+                if (parser.currentToken() == JsonToken.FIELD_NAME && targetKey.equals(parser.currentName())) {
+                    parser.nextToken();
+                    return parser.getText();
+                }
+            }
+        }
+        return null;
+    }
+
+    @Benchmark
     public String testNative() {
         JsonValue node = nativeDocument.find(targetKey);
         return node != null ? node.asString() : null;
@@ -72,6 +90,19 @@ public class PerformanceComparison {
         JsonNode node = jacksonMapper.readTree(Path.of(currentFile).toFile());
         JsonNode result = node.get(targetKey);
         return result != null ? result.asText() : null;
+    }
+
+    @Benchmark
+    public String testJacksonStreamingFile() throws Exception {
+        try (JsonParser parser = jsonFactory.createParser(Path.of(currentFile).toFile())) {
+            while (parser.nextToken() != null) {
+                if (parser.currentToken() == JsonToken.FIELD_NAME && targetKey.equals(parser.currentName())) {
+                    parser.nextToken();
+                    return parser.getText();
+                }
+            }
+        }
+        return null;
     }
 
     @Benchmark

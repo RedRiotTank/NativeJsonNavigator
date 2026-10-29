@@ -42,9 +42,9 @@ Traditional JSON parsers (Jackson, Gson, Fastjson) deserialize the complete docu
 
 | Ideal Use Cases | When to Use Alternatives |
 | :--- | :--- |
-| **Large-scale Ingestion & ETL:** Scanning gigabyte logs or bulk data dumps where only specific fields are needed. | **POJO / DTO Data Binding:** If your primary workflow is auto-mapping JSON into record/class instances, use Jackson. |
+| **Random Access & Point Queries:** Reading specific fields across multi-megabyte payloads without re-parsing from byte 0. | **Sequential Streams > 2 GiB:** If streaming unbounded network feeds or files > 2 GiB linearly, use **Jackson Streaming (`JsonParser`)**. |
+| **Point Navigation in Nested Documents:** Pulling deeply nested tokens (`doc.root().findPath(...)`) with clean DOM ergonomics and zero heap. | **POJO / DTO Data Binding:** If your primary workflow is auto-mapping JSON into record/class instances, use **Jackson Databind (`readValue`)**. |
 | **Latency-Critical Services:** High-frequency trading, real-time analytics, and microservices sensitive to GC pauses. | **JSON Mutation & Serialization:** Writing, updating, or generating JSON payloads. |
-| **Point Queries in Nested Documents:** Pulling deeply nested tokens (e.g., `doc.root().findPath("users", "0", "address", "city")`). | **Untrusted / Hostile Inputs:** Untrusted payloads requiring strict defensive schema validation or non-UTF-8 encodings. |
 
 ---
 
@@ -122,15 +122,15 @@ public class Application {
 
 ## Benchmarks
 
-Microbenchmarks were conducted using [JMH (Java Microbenchmark Harness 1.37)](https://github.com/openjdk/jmh) with the `-prof gc` profiler, comparing **Native JSON Navigator** against **Jackson Databind 2.17.0**.
+Microbenchmarks were conducted using [JMH (Java Microbenchmark Harness 1.37)](https://github.com/openjdk/jmh) with the `-prof gc` profiler, comparing **Native JSON Navigator** against **Jackson 2.17.0** using both its Tree Model (`readTree`) and Streaming API (`JsonParser`).
 
 Raw JMH JSON output reports are checked into this repository:
 * [**Java 22 Results (Temurin 22.0.2)**](benchmarks/jmh-result-java22.json)
 * [**Java 27 Results (Temurin 27-ea)**](benchmarks/jmh-result-java27.json)
 
-> **What is measured:** This benchmark evaluates two distinct access patterns:
-> 1. **Lazy Point-Navigation:** Navigating an off-heap mapped document directly to a target key without building an object graph (`doc.find(targetKey)`) vs. Jackson parsing the entire payload into an in-memory `JsonNode` tree (`jacksonMapper.readTree(jsonContent)`).
-> 2. **End-to-End File Query:** Opening and mapping the file from disk to extract the field (`JsonDocument.open().find()`) vs. Jackson reading and parsing the file from disk (`jacksonMapper.readTree(file)`).
+> **What is measured:**
+> 1. **Lazy Point-Navigation (In-Memory):** Navigating an off-heap mapped document directly to a target key without building an object graph (`doc.find(targetKey)`) vs. Jackson parsing into a `JsonNode` tree (`readTree`) vs. a direct token iteration loop (`JsonParser`).
+> 2. **End-to-End File Query (From Disk):** Opening and mapping the file from disk (`JsonDocument.open().find()`) vs. Jackson reading and parsing from disk (`readTree(file)` and `createParser(file)`).
 
 * **Hardware:** AMD Ryzen 7 7800X3D (8 Cores / 16 Threads @ 4.20 GHz)
 * **OS / Runtime:** Linux 6.x (64-bit Server VM)
@@ -144,19 +144,19 @@ Navigating to a scalar field in a pre-loaded document without building an interm
 
 #### Execution Time (Lower is better)
 
-| Dataset | File Size | Jackson 2.17.0 (JDK 22) | Native Navigator (JDK 22) | Speedup (JDK 22) | Native Navigator (JDK 27) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `project.json` (small) | ~150 B | 0.0008 ms | **0.0004 ms** | **~2.0x** | **0.0005 ms** |
-| `medium_dataset.json` | ~10 MB | 40.790 ms | **33.349 ms** | **~1.2x** | **34.541 ms** |
-| `large_dataset.json` | ~100 MB | 910.199 ms | **311.570 ms** | **~2.9x** | **314.781 ms** |
+| Dataset | File Size | Jackson Tree (`readTree`) | Jackson Streaming (`JsonParser`) | Native JSON Navigator | Speedup vs Tree | Speedup vs Streaming |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `project.json` (small) | ~150 B | 0.0007 ms | 0.0005 ms | **0.0004 ms** | **~1.8x** | **~1.3x** |
+| `medium_dataset.json` | ~10 MB | 42.926 ms | 36.561 ms | **29.331 ms** | **~1.5x** | **~1.2x** |
+| `large_dataset.json` | ~100 MB | 836.040 ms | 357.604 ms | **294.474 ms** | **~2.8x** | **~1.2x** |
 
 #### Heap Allocation & GC Time per Operation (Lower is better)
 
-| Dataset | Jackson Heap Alloc | Native Heap Alloc | Heap Reduction | Jackson GC Pause | Native GC Pause |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `project.json` | 1,688 B | **128 B** | **-92.4%** | 37.0 ms | **18.0 ms** |
-| `medium_dataset.json` | ~56.5 MB | **405 B** | **-99.999%** | 58.0 ms | **10.0 ms** |
-| `large_dataset.json` | ~566.6 MB | **2,129 B** | **-99.999%** | 1,964.0 ms | **8.0 ms** |
+| Dataset | Jackson Tree Alloc | Jackson Streaming Alloc | Native Heap Alloc | Heap Reduction vs Tree | Heap Reduction vs Streaming | Jackson Tree GC | Native GC |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `project.json` | 1,688 B | 632 B | **128 B** | **-92.4%** | **-79.7%** | 28 ms | **22 ms** |
+| `medium_dataset.json` | ~56.5 MB | 1,058 B | **372 B** | **-99.999%** | **-64.8%** | 122 ms | **8 ms** |
+| `large_dataset.json` | ~566.6 MB | 3,415 B | **2,129 B** | **-99.999%** | **-37.7%** | 1,801 ms | **12 ms** |
 
 ---
 
@@ -164,13 +164,26 @@ Navigating to a scalar field in a pre-loaded document without building an interm
 
 Opening the file from storage/OS cache and extracting a target field:
 
-| Dataset | Jackson (`readTree(File)`) | Native (`open().find()`) | Speedup | Native Heap Alloc |
-| :--- | :--- | :--- | :--- | :--- |
-| `project.json` | 0.0068 ms | **0.0463 ms** *(mmap overhead)* | — | 1,282 B |
-| `medium_dataset.json` | 64.217 ms | **30.819 ms** | **~2.1x faster** | **1,626 B** (vs 56.5 MB) |
-| `large_dataset.json` | 1,537.803 ms | **310.570 ms** | **~5.0x faster** | **3,174 B** (vs 566.6 MB) |
+#### Execution Time (Lower is better)
 
-> On large files, Jackson's GC pause time alone reached **1,615 ms**, while Native JSON Navigator performed the full mapping and traversal with only **8 ms** total GC activity.
+| Dataset | File Size | Jackson Tree (`readTree`) | Jackson Streaming (`createParser`) | Native JSON Navigator | Speedup vs Tree | Speedup vs Streaming |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `project.json` (small) | ~150 B | 0.0070 ms | 0.0079 ms | **0.0485 ms** *(mmap overhead)* | — | — |
+| `medium_dataset.json` | ~10 MB | 41.247 ms | 29.123 ms | **30.502 ms** | **~1.4x** | ~parity |
+| `large_dataset.json` | ~100 MB | 1,209.351 ms | 301.534 ms | **305.961 ms** | **~4.0x** | ~parity |
+
+#### Heap Allocation & GC Time per Operation (Lower is better)
+
+| Dataset | Jackson Tree Alloc | Jackson Streaming Alloc | Native Heap Alloc | Heap Reduction vs Tree | Heap Reduction vs Streaming | Jackson Tree GC | Native GC |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `project.json` | 2,008 B | 952 B | **1,285 B** | **-36.0%** | +35.0% *(mmap handles)* | 23 ms | **11 ms** |
+| `medium_dataset.json` | ~56.5 MB | 1,396 B | **1,623 B** | **-99.999%** | ~parity | 92 ms | **8 ms** |
+| `large_dataset.json` | ~566.6 MB | 3,150 B | **3,145 B** | **-99.999%** | ~parity | 1,126 ms | **9 ms** |
+
+> **Benchmark Takeaways:**
+> * **Cold Single Pass (Parity):** For a single forward pass searching for a field at the end of the file, Jackson Streaming and Native JSON Navigator achieve identical throughput (~300 ms) and heap footprint (~3 KB).
+> * **Multiple Queries & Random Access:** Jackson Streaming is strictly forward-only; executing $Q$ queries requires re-reading from byte 0 every time ($Q \times 300\text{ ms}$). Native JSON Navigator maps the file once, enabling repeated zero-copy random queries without re-parsing.
+> * **In-Memory Traversal:** Native JSON Navigator is **~18–20% faster** in-memory while allocating **38%–65% less heap** than Jackson Streaming.
 
 ---
 

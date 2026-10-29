@@ -8,12 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Documentation
+- Updated JMH benchmark tables in README to include Jackson Streaming comparisons.
 - Corrected `JsonValue.get` documentation: this library returns the first occurrence of duplicate keys, while `keys()` and `size()` preserve duplicates.
 - Documented linear-scan complexities ($O(n)$) and allocation profiles for `get`, `getAt`, `findPath`, `keys`, and `size`.
 - Described exact JMH benchmark methodology (comparing off-heap lazy point navigation against full in-memory tree deserialization).
 - Updated release documentation and verified Maven Central metadata checks.
 
 ### Quality & Hardening
+- Added Jackson Streaming benchmarks (`testJacksonStreaming` and `testJacksonStreamingFile`) to JMH benchmark harness (`PerformanceComparison.java`).
 - Expanded CI matrix across multi-OS (Linux, Windows, macOS) on JDK 22 and JDK 25 LTS.
 - Added SpotBugs (`spotbugs-maven-plugin`) for static bytecode analysis with zero tolerance for high/medium bugs.
 - Added japicmp (`japicmp-maven-plugin`) to enforce binary and source backward compatibility on public APIs against release 1.0.1.
