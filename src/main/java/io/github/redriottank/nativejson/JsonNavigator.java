@@ -34,6 +34,12 @@ final class JsonNavigator implements AutoCloseable {
     /** Guards against stack exhaustion on pathologically nested documents. */
     private static final int MAX_NESTING_DEPTH = 500;
 
+    private static final long REPEAT_01 = 0x0101010101010101L;
+    private static final long REPEAT_20 = 0x2020202020202020L;
+    private static final long REPEAT_80 = 0x8080808080808080L;
+    private static final long REPEAT_QUOTE = 0x2222222222222222L;
+    private static final long REPEAT_SLASH = 0x5C5C5C5C5C5C5C5CL;
+
     private final Arena arena;
     private final MemorySegment segment;
     private final int size;
@@ -688,6 +694,27 @@ final class JsonNavigator implements AutoCloseable {
     private int skipString(int position, int end) {
         int current = position + 1;
         while (current < end) {
+            if (current + 8 <= end) {
+                long word = segment.get(ValueLayout.JAVA_LONG_UNALIGNED, current);
+                long hasControl = (word - REPEAT_20) & ~word & REPEAT_80;
+                long hasHighBit = word & REPEAT_80;
+                long quoteXor = word ^ REPEAT_QUOTE;
+                long hasQuote = (quoteXor - REPEAT_01) & ~quoteXor & REPEAT_80;
+                long slashXor = word ^ REPEAT_SLASH;
+                long hasSlash = (slashXor - REPEAT_01) & ~slashXor & REPEAT_80;
+
+                if (hasQuote != 0) {
+                    int quoteBit = Long.numberOfTrailingZeros(hasQuote);
+                    long special = hasControl | hasHighBit | hasSlash;
+                    if (special == 0 || Long.numberOfTrailingZeros(special) > quoteBit) {
+                        return current + (quoteBit >>> 3) + 1;
+                    }
+                } else if ((hasControl | hasHighBit | hasSlash) == 0) {
+                    current += 8;
+                    continue;
+                }
+            }
+
             byte b = byteAt(current);
             if (b == QUOTE) {
                 return current + 1;
@@ -712,10 +739,10 @@ final class JsonNavigator implements AutoCloseable {
                     }
                     default -> throw new JsonParseException("Invalid escape sequence '\\" + printable(escaped) + "'", current);
                 }
-            } else if (b >= 0 && b < 0x20) {
-                throw new JsonParseException("Unescaped control character in string", current);
-            } else if (b >= 0) {
+            } else if (b >= 0x20) {
                 current++;
+            } else if (b >= 0) {
+                throw new JsonParseException("Unescaped control character in string", current);
             } else {
                 int codePoint = codePointAt(current, end);
                 current += utf8Length(codePoint);
@@ -797,6 +824,9 @@ final class JsonNavigator implements AutoCloseable {
     private int skipWhitespace(int position, int end) {
         while (position < end) {
             byte b = byteAt(position);
+            if (b > 0x20 || b <= 0) {
+                break;
+            }
             if (b != ' ' && b != '\n' && b != '\r' && b != '\t') {
                 break;
             }
