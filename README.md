@@ -146,17 +146,17 @@ Navigating to a scalar field in a pre-loaded document without building an interm
 
 | Dataset | File Size | Jackson Tree (`readTree`) | Jackson Streaming (`JsonParser`) | Native JSON Navigator | Speedup vs Tree | Speedup vs Streaming |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `project.json` (small) | ~150 B | 0.0007 ms | 0.0005 ms | **0.0004 ms** | **~1.8x** | **~1.3x** |
-| `medium_dataset.json` | ~10 MB | 42.926 ms | 36.561 ms | **29.331 ms** | **~1.5x** | **~1.2x** |
-| `large_dataset.json` | ~100 MB | 836.040 ms | 357.604 ms | **294.474 ms** | **~2.8x** | **~1.2x** |
+| `project.json` (small) | ~150 B | 0.0008 ms | 0.0005 ms | **0.0004 ms** | **~2.0x** | **~1.2x** |
+| `medium_dataset.json` | ~10 MB | 38.440 ms | 36.760 ms | **29.257 ms** | **~1.3x** | **~1.3x** |
+| `large_dataset.json` | ~100 MB | 845.502 ms | 368.313 ms | **297.276 ms** | **~2.8x** | **~1.2x** |
 
 #### Heap Allocation & GC Time per Operation (Lower is better)
 
 | Dataset | Jackson Tree Alloc | Jackson Streaming Alloc | Native Heap Alloc | Heap Reduction vs Tree | Heap Reduction vs Streaming | Jackson Tree GC | Native GC |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `project.json` | 1,688 B | 632 B | **128 B** | **-92.4%** | **-79.7%** | 28 ms | **22 ms** |
-| `medium_dataset.json` | ~56.5 MB | 1,058 B | **372 B** | **-99.999%** | **-64.8%** | 122 ms | **8 ms** |
-| `large_dataset.json` | ~566.6 MB | 3,415 B | **2,129 B** | **-99.999%** | **-37.7%** | 1,801 ms | **12 ms** |
+| `project.json` | 1,688 B | 632 B | **104 B** | **-93.8%** | **-83.5%** | 41 ms | **22 ms** |
+| `medium_dataset.json` | ~56.5 MB | 1,061 B | **340 B** | **-99.999%** | **-67.9%** | 50 ms | **12 ms** |
+| `large_dataset.json` | ~566.6 MB | 3,415 B | **2,097 B** | **-99.999%** | **-38.6%** | 1,895 ms | **8 ms** |
 
 ---
 
@@ -168,22 +168,22 @@ Opening the file from storage/OS cache and extracting a target field:
 
 | Dataset | File Size | Jackson Tree (`readTree`) | Jackson Streaming (`createParser`) | Native JSON Navigator | Speedup vs Tree | Speedup vs Streaming |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `project.json` (small) | ~150 B | 0.0070 ms | 0.0079 ms | **0.0485 ms** *(mmap overhead)* | — | — |
-| `medium_dataset.json` | ~10 MB | 41.247 ms | 29.123 ms | **30.502 ms** | **~1.4x** | ~parity |
-| `large_dataset.json` | ~100 MB | 1,209.351 ms | 301.534 ms | **305.961 ms** | **~4.0x** | ~parity |
+| `project.json` (small) | ~150 B | 0.0070 ms | 0.0103 ms | **0.0473 ms** *(mmap overhead)* | — | — |
+| `medium_dataset.json` | ~10 MB | 39.450 ms | 29.688 ms | **30.801 ms** | **~1.3x** | ~parity |
+| `large_dataset.json` | ~100 MB | 1,047.025 ms | 301.518 ms | **331.283 ms** | **~3.2x** | ~parity |
 
 #### Heap Allocation & GC Time per Operation (Lower is better)
 
 | Dataset | Jackson Tree Alloc | Jackson Streaming Alloc | Native Heap Alloc | Heap Reduction vs Tree | Heap Reduction vs Streaming | Jackson Tree GC | Native GC |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `project.json` | 2,008 B | 952 B | **1,285 B** | **-36.0%** | +35.0% *(mmap handles)* | 23 ms | **11 ms** |
-| `medium_dataset.json` | ~56.5 MB | 1,396 B | **1,623 B** | **-99.999%** | ~parity | 92 ms | **8 ms** |
-| `large_dataset.json` | ~566.6 MB | 3,150 B | **3,145 B** | **-99.999%** | ~parity | 1,126 ms | **9 ms** |
+| `project.json` | 2,008 B | 952 B | **1,244 B** | **-38.0%** | +30.7% *(mmap handles)* | 21 ms | **10 ms** |
+| `medium_dataset.json` | ~56.5 MB | 1,399 B | **1,593 B** | **-99.999%** | ~parity | 112 ms | **8 ms** |
+| `large_dataset.json` | ~566.6 MB | 3,150 B | **3,496 B** | **-99.999%** | ~parity | 1,402 ms | **8 ms** |
 
 > **Benchmark Takeaways:**
 > * **Cold Single Pass (Parity):** For a single forward pass searching for a field at the end of the file, Jackson Streaming and Native JSON Navigator achieve identical throughput (~300 ms) and heap footprint (~3 KB).
 > * **Multiple Queries & Random Access:** Jackson Streaming is strictly forward-only; executing $Q$ queries requires re-reading from byte 0 every time ($Q \times 300\text{ ms}$). Native JSON Navigator maps the file once, enabling repeated zero-copy random queries without re-parsing.
-> * **In-Memory Traversal:** Native JSON Navigator is **~18–20% faster** in-memory while allocating **38%–65% less heap** than Jackson Streaming.
+> * **In-Memory Traversal:** Native JSON Navigator is **~18–24% faster** in-memory while allocating **38%–84% less heap** than Jackson Streaming.
 
 ---
 
