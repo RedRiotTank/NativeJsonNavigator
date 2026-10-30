@@ -123,28 +123,75 @@ final class JsonNavigator implements AutoCloseable {
         lock.readLock().lock();
         try {
             checkOpen();
-            int offset = offset(pointer);
-            int end = end(pointer);
-            int position = skipWhitespace(offset, end);
-            if (position >= end) {
-                throw new JsonParseException("Unexpected end of input", position);
-            }
-            byte b = byteAt(position);
-            return switch (b) {
-                case QUOTE -> JsonType.STRING;
-                case OPEN_BRACE -> JsonType.OBJECT;
-                case OPEN_BRACKET -> JsonType.ARRAY;
-                case 't', 'f' -> JsonType.BOOLEAN;
-                case 'n' -> JsonType.NULL;
-                default -> {
-                    if (b == '-' || isDigit(b)) {
-                        yield JsonType.NUMBER;
-                    }
-                    throw new JsonParseException("Unexpected character '" + printable(b) + "'", position);
-                }
-            };
+            return typeOfLocked(pointer);
         } finally {
             lock.readLock().unlock();
+        }
+    }
+
+    private JsonType typeOfLocked(long pointer) {
+        int offset = offset(pointer);
+        int end = end(pointer);
+        int position = skipWhitespace(offset, end);
+        if (position >= end) {
+            throw new JsonParseException("Unexpected end of input", position);
+        }
+        byte b = byteAt(position);
+        return switch (b) {
+            case QUOTE -> JsonType.STRING;
+            case OPEN_BRACE -> JsonType.OBJECT;
+            case OPEN_BRACKET -> JsonType.ARRAY;
+            case 't', 'f' -> JsonType.BOOLEAN;
+            case 'n' -> JsonType.NULL;
+            default -> {
+                if (b == '-' || isDigit(b)) {
+                    yield JsonType.NUMBER;
+                }
+                throw new JsonParseException("Unexpected character '" + printable(b) + "'", position);
+            }
+        };
+    }
+
+    long findPath(long pointer, String... path) {
+        lock.readLock().lock();
+        try {
+            checkOpen();
+            return findPathLocked(pointer, path);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private long findPathLocked(long rootPointer, String... path) {
+        long current = rootPointer;
+        for (String segment : path) {
+            if (segment == null) {
+                throw new IllegalArgumentException("path segments must not be null");
+            }
+            JsonType type = typeOfLocked(current);
+            if (type == JsonType.ARRAY) {
+                int index = parseIndex(segment);
+                if (index < 0) {
+                    return -1;
+                }
+                current = elementAtLocked(current, index);
+            } else if (type == JsonType.OBJECT) {
+                current = findKeyLocked(current, segment);
+            } else {
+                return -1;
+            }
+            if (current == -1) {
+                return -1;
+            }
+        }
+        return current;
+    }
+
+    private static int parseIndex(String s) {
+        try {
+            return Integer.parseInt(s);
+        } catch (NumberFormatException e) {
+            return -1;
         }
     }
 
@@ -166,7 +213,8 @@ final class JsonNavigator implements AutoCloseable {
             return -1;
         }
 
-        byte[] keyBytes = key.getBytes(StandardCharsets.UTF_8);
+        boolean ascii = isAscii(key);
+        byte[] keyBytes = ascii ? null : key.getBytes(StandardCharsets.UTF_8);
         position = skipWhitespace(position + 1, end);
         if (position < end && byteAt(position) == CLOSE_BRACE) {
             return -1;
@@ -188,7 +236,7 @@ final class JsonNavigator implements AutoCloseable {
             int valueStart = position;
             int valueEnd = skipValue(position, end);
 
-            if (keyMatches(keyStart, keyEnd, keyBytes, key)) {
+            if (keyMatches(keyStart, keyEnd, key, ascii, keyBytes)) {
                 return PackedPointer.pack(valueStart, valueEnd - valueStart);
             }
 
@@ -268,7 +316,7 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     private int sizeOfLocked(long pointer) {
-        JsonType type = typeOf(pointer);
+        JsonType type = typeOfLocked(pointer);
         int offset = offset(pointer);
         int end = end(pointer);
         int position = skipWhitespace(offset, end);
@@ -340,7 +388,7 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     private List<String> keysOfLocked(long pointer) {
-        if (typeOf(pointer) != JsonType.OBJECT) {
+        if (typeOfLocked(pointer) != JsonType.OBJECT) {
             throw new IllegalStateException("keys() requires an object");
         }
         int offset = offset(pointer);
@@ -438,8 +486,9 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     private boolean asBooleanLocked(long pointer) {
-        if (typeOf(pointer) != JsonType.BOOLEAN) {
-            throw new IllegalStateException("asBoolean() requires a boolean, but this value is " + typeOf(pointer));
+        JsonType type = typeOfLocked(pointer);
+        if (type != JsonType.BOOLEAN) {
+            throw new IllegalStateException("asBoolean() requires a boolean, but this value is " + type);
         }
         if (matchesLiteral(pointer, "true")) {
             return true;
@@ -454,7 +503,7 @@ final class JsonNavigator implements AutoCloseable {
         lock.readLock().lock();
         try {
             checkOpen();
-            return typeOf(pointer) == JsonType.NULL && matchesLiteral(pointer, "null");
+            return typeOfLocked(pointer) == JsonType.NULL && matchesLiteral(pointer, "null");
         } finally {
             lock.readLock().unlock();
         }
@@ -488,8 +537,9 @@ final class JsonNavigator implements AutoCloseable {
         lock.readLock().lock();
         try {
             checkOpen();
-            if (typeOf(pointer) != JsonType.NUMBER) {
-                throw new IllegalStateException("asDouble() requires a number, but this value is " + typeOf(pointer));
+            JsonType type = typeOfLocked(pointer);
+            if (type != JsonType.NUMBER) {
+                throw new IllegalStateException("asDouble() requires a number, but this value is " + type);
             }
             return Double.parseDouble(raw(pointer));
         } finally {
@@ -498,8 +548,9 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     private long parseLong(long pointer) {
-        if (typeOf(pointer) != JsonType.NUMBER) {
-            throw new IllegalStateException("asLong() requires a number, but this value is " + typeOf(pointer));
+        JsonType type = typeOfLocked(pointer);
+        if (type != JsonType.NUMBER) {
+            throw new IllegalStateException("asLong() requires a number, but this value is " + type);
         }
         int offset = offset(pointer);
         int end = end(pointer);
@@ -893,28 +944,68 @@ final class JsonNavigator implements AutoCloseable {
         return 4;
     }
 
-    private boolean keyMatches(int keyStart, int keyEnd, byte[] keyBytes, String key) {
+    private boolean keyMatches(int keyStart, int keyEnd, String key, boolean ascii, byte[] keyBytes) {
         int from = keyStart + 1;
         int to = keyEnd - 1;
-        boolean escaped = false;
-        for (int i = from; i < to; i++) {
-            if (byteAt(i) == BACKSLASH) {
-                escaped = true;
-                break;
-            }
+        int rawLen = to - from;
+        int targetLen = ascii ? key.length() : keyBytes.length;
+
+        if (rawLen < targetLen) {
+            return false;
         }
-        if (!escaped) {
-            if (to - from != keyBytes.length) {
-                return false;
-            }
-            for (int i = 0; i < keyBytes.length; i++) {
-                if (byteAt(from + i) != keyBytes[i]) {
-                    return false;
+
+        if (rawLen == targetLen) {
+            boolean hasEscape = false;
+            if (ascii) {
+                for (int i = 0; i < rawLen; i++) {
+                    byte b = byteAt(from + i);
+                    if (b == BACKSLASH) {
+                        hasEscape = true;
+                        break;
+                    }
+                    if (b != (byte) key.charAt(i)) {
+                        return false;
+                    }
+                }
+            } else {
+                for (int i = 0; i < rawLen; i++) {
+                    byte b = byteAt(from + i);
+                    if (b == BACKSLASH) {
+                        hasEscape = true;
+                        break;
+                    }
+                    if (b != keyBytes[i]) {
+                        return false;
+                    }
                 }
             }
-            return true;
+            if (!hasEscape) {
+                return true;
+            }
+        } else {
+            boolean hasEscape = false;
+            for (int i = from; i < to; i++) {
+                if (byteAt(i) == BACKSLASH) {
+                    hasEscape = true;
+                    break;
+                }
+            }
+            if (!hasEscape) {
+                return false;
+            }
         }
+
         return decodeString(keyStart, keyEnd).equals(key);
+    }
+
+    private static boolean isAscii(String s) {
+        int len = s.length();
+        for (int i = 0; i < len; i++) {
+            if (s.charAt(i) > 0x7F) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String copy(int start, int end) {

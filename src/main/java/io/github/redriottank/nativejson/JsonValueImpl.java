@@ -116,28 +116,17 @@ final class JsonValueImpl implements JsonValue {
         if (path == null) {
             throw new IllegalArgumentException("path must not be null");
         }
-        navigator.ensureOpen();
-        JsonValue current = this;
+        if (path.length == 0) {
+            navigator.ensureOpen();
+            return this;
+        }
         for (String segment : path) {
             if (segment == null) {
                 throw new IllegalArgumentException("path segments must not be null");
             }
-            if (current.type() == JsonType.ARRAY) {
-                int index;
-                try {
-                    index = Integer.parseInt(segment);
-                } catch (NumberFormatException e) {
-                    return null;
-                }
-                current = current.getAt(index);
-            } else {
-                current = current.get(segment);
-            }
-            if (current == null) {
-                return null;
-            }
         }
-        return current;
+        long child = navigator.findPath(pointer, path);
+        return child == -1 ? null : new JsonValueImpl(navigator, child);
     }
 
     @Override
