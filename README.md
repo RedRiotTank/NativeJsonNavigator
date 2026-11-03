@@ -58,20 +58,20 @@ Native JSON Navigator requires **Java 22 or newer** (the Foreign Function & Memo
 <dependency>
     <groupId>io.github.redriottank</groupId>
     <artifactId>native-json-navigator</artifactId>
-    <version>1.0.1</version>
+    <version>1.1.0</version>
 </dependency>
 ```
 
 ### Gradle (Kotlin DSL)
 
 ```kotlin
-implementation("io.github.redriottank:native-json-navigator:1.0.1")
+implementation("io.github.redriottank:native-json-navigator:1.1.0")
 ```
 
 ### Gradle (Groovy DSL)
 
 ```groovy
-implementation 'io.github.redriottank:native-json-navigator:1.0.1'
+implementation 'io.github.redriottank:native-json-navigator:1.1.0'
 ```
 
 ---

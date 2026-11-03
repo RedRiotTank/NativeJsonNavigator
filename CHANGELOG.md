@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-03
+
+### Added
+- `JsonDocument.openImmutable(Path)` and `openImmutable(String)` — GC-managed, arena-backed view for lock-free concurrent reads without risk of `IllegalStateException` from concurrent `close()`.
+- `JsonDocument.isImmutable()` predicate to distinguish immutable from closeable documents.
+- `ConcurrentBenchmark` JMH harness for measuring throughput under parallel read load.
+
+### Performance
+- SWAR (SIMD Within A Register) `skipString` implementation for byte-at-a-time string scanning.
+- Fast-exit `skipWhitespace` using bitwise tricks to reduce branch mispredictions.
+- In-place ASCII key matching to avoid allocation on the hot path.
+- Single-lock primitive path navigation for reduced contention.
+- Dual-mode navigator: lock-free reads on immutable arenas; explicit-lock reads on closeable arenas.
+
 ### Documentation
 - Updated JMH benchmark tables in README to include Jackson Streaming comparisons.
 - Corrected `JsonValue.get` documentation: this library returns the first occurrence of duplicate keys, while `keys()` and `size()` preserve duplicates.
@@ -28,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Improved release script portability (removed GNU `sort -V` and `seq` dependencies) and added prerelease flag support.
 - Added JPMS module path verification integration test (`ModulePathIntegrationTest`).
 - Cleaned tracked IDE metadata (`.idea/`) and relocated sample datasets to `src/test/resources`.
+
+[1.1.0]: https://github.com/RedRiotTank/NativeJsonNavigator/releases/tag/v1.1.0
 
 ## [1.0.1] - 2026-10-28
 
