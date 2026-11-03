@@ -51,7 +51,7 @@ public final class JsonDocument implements AutoCloseable {
      */
     public static JsonDocument open(Path path) throws IOException {
         Objects.requireNonNull(path, "path must not be null");
-        return new JsonDocument(new JsonNavigator(path), path);
+        return new JsonDocument(JsonNavigator.open(path), path);
     }
 
     /**
@@ -65,6 +65,51 @@ public final class JsonDocument implements AutoCloseable {
      */
     public static JsonDocument open(String filePath) throws IOException {
         return open(Path.of(Objects.requireNonNull(filePath, "filePath must not be null")));
+    }
+
+    /**
+     * Opens and memory-maps a JSON document as an immutable, GC-managed view.
+     *
+     * <p>Unlike {@link #open(Path)}, the document is backed by an automatic arena
+     * ({@link java.lang.foreign.Arena#ofAuto()}) whose lifecycle is bound to the
+     * garbage collector rather than explicit calls to {@link #close()}. Parallel
+     * reader threads can safely share this view without risk of encountering
+     * {@link IllegalStateException} from concurrent close operations.</p>
+     *
+     * <p>Calling {@link #close()} on an immutable document is an idempotent no-op.</p>
+     *
+     * @param path the path to a UTF-8 encoded JSON file
+     * @return the opened immutable document
+     * @throws IOException           if the file cannot be opened or mapped
+     * @throws JsonParseException    if the file is empty, contains only whitespace or does not start with a JSON value
+     * @throws IllegalArgumentException if the file is larger than 2 GiB
+     */
+    public static JsonDocument openImmutable(Path path) throws IOException {
+        Objects.requireNonNull(path, "path must not be null");
+        return new JsonDocument(JsonNavigator.openImmutable(path), path);
+    }
+
+    /**
+     * Opens and memory-maps a JSON document as an immutable, GC-managed view.
+     *
+     * @param filePath the path to a UTF-8 encoded JSON file
+     * @return the opened immutable document
+     * @throws IOException           if the file cannot be opened or mapped
+     * @throws JsonParseException    if the file is empty, contains only whitespace or does not start with a JSON value
+     * @throws IllegalArgumentException if the file is larger than 2 GiB
+     */
+    public static JsonDocument openImmutable(String filePath) throws IOException {
+        return openImmutable(Path.of(Objects.requireNonNull(filePath, "filePath must not be null")));
+    }
+
+    /**
+     * Returns whether this document is an immutable, GC-managed view.
+     *
+     * @return {@code true} if this document was opened with {@link #openImmutable(Path)},
+     *         {@code false} otherwise
+     */
+    public boolean isImmutable() {
+        return navigator.isImmutable();
     }
 
     /**

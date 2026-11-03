@@ -78,7 +78,8 @@ implementation 'io.github.redriottank:native-json-navigator:1.0.1'
 
 ## Quick Start
 
-`JsonDocument` maps the underlying file into off-heap memory and implements `AutoCloseable`. Always manage it inside a `try-with-resources` block.
+### Deterministic Lifecycle (`open`)
+`JsonDocument.open()` maps the underlying file using a shared off-heap arena and implements `AutoCloseable`. Manage it inside a `try-with-resources` block to release native memory and OS file descriptors immediately:
 
 ```java
 import io.github.redriottank.nativejson.JsonDocument;
@@ -116,6 +117,17 @@ public class Application {
         } // Off-heap mapping is cleanly unmapped when exiting try-with-resources
     }
 }
+```
+
+### Immutable View for Parallel Readers (`openImmutable`)
+When sharing a document across worker thread pools or long-running query services, use `openImmutable()`:
+
+```java
+// Mapped via Arena.ofAuto(); managed by the Garbage Collector
+JsonDocument sharedDoc = JsonDocument.openImmutable(Path.of("dataset.json"));
+
+// Concurrent reader threads query lock-free without closing hazards
+executor.submit(() -> sharedDoc.root().findPath("users", "0", "name").asString());
 ```
 
 ---
@@ -228,14 +240,14 @@ Traditional parsers convert an entire byte stream into heaps of `String`, `Map$N
 1. **Memory-Mapped I/O (`MemorySegment`):** Maps the JSON file into off-heap memory via `Arena.ofShared()`. The operating system page cache transparently loads only the pages touched during queries.
 2. **Bit-Packed Primitive Pointers:** Navigation coordinates are stored internally inside an unboxed `long` (32-bit offset + 32-bit length). No intermediate pointer chains or node instances are instantiated during tree walking.
 3. **On-Demand Value Decoding:** Numbers, booleans, and nulls are evaluated directly on the raw bytes without intermediate `java.lang.String` construction.
-4. **Shared Arena Lifecycle:** Multiple threads can read concurrently without locks. Invoking `close()` synchronizes with in-flight readers via reader-writer semantics and safely releases the off-heap mapping.
+4. **Lock-Free Reads & Dual Lifecycle Modes:** Reads are completely lock-free. In deterministic mode (`open`), memory is mapped via `Arena.ofShared()` and unmapped immediately upon `close()`, relying on the JVM Foreign Function & Memory runtime's native temporal safety checks instead of user-space read locks. In immutable mode (`openImmutable`), memory is mapped via `Arena.ofAuto()` and managed by GC Cleaners, creating a permanent, non-closing view ideal for worker thread pools.
 
 ### Computational Complexity & Allocations
 
 * **Linear Scans ($O(n)$):** Container operations (`get`, `getAt`, `keys`, and `size`) perform a linear scan from the start of the container. Repeated random access via `getAt(i)` rescans preceding elements.
 * **Path Navigation:** `findPath(segments...)` has a complexity of $O(\sum \text{container scan lengths})$ across the traversed segments.
 * **Allocation Profile:**
-  - **Zero heap allocations:** `asInt()`, `asLong()`, `asBoolean()`, `isNull()`, `type()`, `size()`, `validate()`.
+  - **Zero heap allocations:** `asInt()`, `asLong()`, `asBoolean()`, `isNull()`, `type()`, `size()`, `validate()`, `isImmutable()`.
   - **Lightweight views:** `get(key)`, `getAt(index)`, and each step of `findPath(...)` allocate a single ephemeral `JsonValue` flyweight object (wrapping primitive pointer offsets).
   - **Materializations:** `asString()` and `raw()` allocate a `String`; `keys()` allocates an `ArrayList<String>`.
 * **Duplicate Keys:** `get(key)` returns the **first occurrence**; `keys()` and `size()` preserve and count all duplicate occurrences.
@@ -250,8 +262,8 @@ Traditional parsers convert an entire byte stream into heaps of `String`, `Map$N
 | **Maximum File Size** | **2 GiB** (backed by 32-bit packed pointer offsets) |
 | **Encoding** | UTF-8 only (Optional UTF-8 BOM is detected and skipped) |
 | **Access Model** | Read-only |
-| **Thread Safety** | **Thread-safe for concurrent reads.** `close()` safely drains active readers before unmapping. |
-| **Memory Model** | Off-heap (`Arena.ofShared()`). Unaffected by JVM `-Xmx` boundaries. |
+| **Thread Safety** | **Lock-free and thread-safe for concurrent reads.** |
+| **Memory Model** | Off-heap (`Arena.ofShared()` for deterministic mode; `Arena.ofAuto()` for immutable mode). Unaffected by JVM `-Xmx` boundaries. |
 
 ---
 
@@ -261,13 +273,15 @@ Traditional parsers convert an entire byte stream into heaps of `String`, `Map$N
 
 | Method | Return Type | Description |
 | :--- | :--- | :--- |
-| `open(Path path)` / `open(String path)` | `JsonDocument` | Memory-maps a UTF-8 JSON file. |
+| `open(Path path)` / `open(String path)` | `JsonDocument` | Memory-maps a UTF-8 JSON file with deterministic `AutoCloseable` lifecycle (`Arena.ofShared()`). |
+| `openImmutable(Path path)` / `openImmutable(String path)` | `JsonDocument` | Memory-maps a UTF-8 JSON file as an immutable, GC-managed view (`Arena.ofAuto()`). `close()` is a no-op. |
+| `isImmutable()` | `boolean` | Returns `true` if the document was opened via `openImmutable()`. |
 | `root()` | `JsonValue` | Returns the root value (`OBJECT`, `ARRAY`, etc.). |
 | `find(String key)` | `JsonValue` | Shorthand for `root().get(key)` ($O(n)$ scan). |
 | `byteSize()` | `long` | Total byte size of the mapped file. |
 | `path()` | `Path` | Source file path. |
 | `validate()` | `void` | Structural validation pass across the entire document without copying. |
-| `close()` | `void` | Releases memory mapping; idempotent and safe to retry. |
+| `close()` | `void` | Releases memory mapping; idempotent and safe to retry (no-op in immutable mode). |
 
 ### `JsonValue`
 

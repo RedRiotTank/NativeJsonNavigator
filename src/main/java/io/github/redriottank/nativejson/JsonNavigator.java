@@ -12,7 +12,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Memory-mapped, lazily validated JSON reader.
@@ -44,12 +43,20 @@ final class JsonNavigator implements AutoCloseable {
     private final MemorySegment segment;
     private final int size;
     private final int rootOffset;
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private final boolean isImmutable;
 
     private volatile boolean closed;
 
+    static JsonNavigator open(Path path) throws IOException {
+        return new JsonNavigator(path, Arena.ofShared(), false);
+    }
+
+    static JsonNavigator openImmutable(Path path) throws IOException {
+        return new JsonNavigator(path, Arena.ofAuto(), true);
+    }
+
     JsonNavigator(Path path) throws IOException {
-        this(path, Arena.ofShared());
+        this(path, Arena.ofShared(), false);
     }
 
     /**
@@ -60,6 +67,10 @@ final class JsonNavigator implements AutoCloseable {
      * can observe both paths.</p>
      */
     JsonNavigator(Path path, Arena arena) throws IOException {
+        this(path, arena, false);
+    }
+
+    JsonNavigator(Path path, Arena arena, boolean isImmutable) throws IOException {
         Objects.requireNonNull(arena, "arena must not be null");
         try {
             long fileSize = Files.size(path);
@@ -79,6 +90,7 @@ final class JsonNavigator implements AutoCloseable {
             this.arena = arena;
             this.segment = segment;
             this.size = (int) fileSize;
+            this.isImmutable = isImmutable;
 
             int start = 0;
             if (size >= 3
@@ -110,13 +122,12 @@ final class JsonNavigator implements AutoCloseable {
         return size;
     }
 
+    boolean isImmutable() {
+        return isImmutable;
+    }
+
     void ensureOpen() {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
     }
 
     private void checkOpen() {
@@ -126,13 +137,8 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     JsonType typeOf(long pointer) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            return typeOfLocked(pointer);
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
+        return typeOfLocked(pointer);
     }
 
     private JsonType typeOfLocked(long pointer) {
@@ -159,13 +165,8 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     long findPath(long pointer, String... path) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            return findPathLocked(pointer, path);
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
+        return findPathLocked(pointer, path);
     }
 
     private long findPathLocked(long rootPointer, String... path) {
@@ -202,13 +203,8 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     long findKey(long objectPointer, String key) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            return findKeyLocked(objectPointer, key);
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
+        return findKeyLocked(objectPointer, key);
     }
 
     private long findKeyLocked(long objectPointer, String key) {
@@ -262,13 +258,8 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     long elementAt(long arrayPointer, int index) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            return elementAtLocked(arrayPointer, index);
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
+        return elementAtLocked(arrayPointer, index);
     }
 
     private long elementAtLocked(long arrayPointer, int index) {
@@ -312,13 +303,8 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     int sizeOf(long pointer) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            return sizeOfLocked(pointer);
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
+        return sizeOfLocked(pointer);
     }
 
     private int sizeOfLocked(long pointer) {
@@ -384,13 +370,8 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     List<String> keysOf(long pointer) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            return keysOfLocked(pointer);
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
+        return keysOfLocked(pointer);
     }
 
     private List<String> keysOfLocked(long pointer) {
@@ -434,24 +415,14 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     void validate(long pointer) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            validatedValueEnd(pointer);
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
+        validatedValueEnd(pointer);
     }
 
     String raw(long pointer) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            int start = skipWhitespace(offset(pointer), end(pointer));
-            return copy(start, validatedValueEnd(pointer));
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
+        int start = skipWhitespace(offset(pointer), end(pointer));
+        return copy(start, validatedValueEnd(pointer));
     }
 
     private int validatedValueEnd(long pointer) {
@@ -466,29 +437,19 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     String asString(long pointer) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            int offset = offset(pointer);
-            int end = end(pointer);
-            int start = skipWhitespace(offset, end);
-            if (start < end && byteAt(start) == QUOTE) {
-                return decodeString(start, skipString(start, end));
-            }
-            return raw(pointer);
-        } finally {
-            lock.readLock().unlock();
+        checkOpen();
+        int offset = offset(pointer);
+        int end = end(pointer);
+        int start = skipWhitespace(offset, end);
+        if (start < end && byteAt(start) == QUOTE) {
+            return decodeString(start, skipString(start, end));
         }
+        return raw(pointer);
     }
 
     boolean asBoolean(long pointer) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            return asBooleanLocked(pointer);
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
+        return asBooleanLocked(pointer);
     }
 
     private boolean asBooleanLocked(long pointer) {
@@ -506,51 +467,31 @@ final class JsonNavigator implements AutoCloseable {
     }
 
     boolean isNull(long pointer) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            return typeOfLocked(pointer) == JsonType.NULL && matchesLiteral(pointer, "null");
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
+        return typeOfLocked(pointer) == JsonType.NULL && matchesLiteral(pointer, "null");
     }
 
     int asInt(long pointer) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            long value = parseLong(pointer);
-            if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
-                throw new NumberFormatException("Number does not fit in an int: " + raw(pointer));
-            }
-            return (int) value;
-        } finally {
-            lock.readLock().unlock();
+        checkOpen();
+        long value = parseLong(pointer);
+        if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+            throw new NumberFormatException("Number does not fit in an int: " + raw(pointer));
         }
+        return (int) value;
     }
 
     long asLong(long pointer) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            return parseLong(pointer);
-        } finally {
-            lock.readLock().unlock();
-        }
+        checkOpen();
+        return parseLong(pointer);
     }
 
     double asDouble(long pointer) {
-        lock.readLock().lock();
-        try {
-            checkOpen();
-            JsonType type = typeOfLocked(pointer);
-            if (type != JsonType.NUMBER) {
-                throw new IllegalStateException("asDouble() requires a number, but this value is " + type);
-            }
-            return Double.parseDouble(raw(pointer));
-        } finally {
-            lock.readLock().unlock();
+        checkOpen();
+        JsonType type = typeOfLocked(pointer);
+        if (type != JsonType.NUMBER) {
+            throw new IllegalStateException("asDouble() requires a number, but this value is " + type);
         }
+        return Double.parseDouble(raw(pointer));
     }
 
     private long parseLong(long pointer) {
@@ -1093,25 +1034,22 @@ final class JsonNavigator implements AutoCloseable {
     private static void closeArena(Arena arena, Throwable failure) {
         try {
             arena.close();
+        } catch (UnsupportedOperationException ignored) {
+            // Uncloseable arenas (e.g. Arena.ofAuto()) are managed by the GC
         } catch (RuntimeException | Error closeFailure) {
             failure.addSuppressed(closeFailure);
         }
     }
 
     @Override
-    public void close() {
-        lock.writeLock().lock();
-        try {
-            if (closed) {
-                return;
-            }
-            // Only mark the document closed once the mapping is actually gone.
-            // If close() throws, the navigator remains usable and a later
-            // close() call can retry the release instead of leaking the arena.
-            arena.close();
-            closed = true;
-        } finally {
-            lock.writeLock().unlock();
+    public synchronized void close() {
+        if (isImmutable || closed) {
+            return;
         }
+        // Only mark the document closed once the mapping is actually gone.
+        // If close() throws, the navigator remains usable and a later
+        // close() call can retry the release instead of leaking the arena.
+        arena.close();
+        closed = true;
     }
 }

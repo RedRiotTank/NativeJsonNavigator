@@ -335,9 +335,31 @@ class JsonDocumentTest {
     void rejectsNullArguments() {
         assertThrows(NullPointerException.class, () -> JsonDocument.open((Path) null));
         assertThrows(NullPointerException.class, () -> JsonDocument.open((String) null));
+        assertThrows(NullPointerException.class, () -> JsonDocument.openImmutable((Path) null));
+        assertThrows(NullPointerException.class, () -> JsonDocument.openImmutable((String) null));
         assertThrows(IllegalArgumentException.class, () -> document.root().get(null));
         assertThrows(IllegalArgumentException.class, () -> document.root().findPath((String[]) null));
         assertThrows(IllegalArgumentException.class, () -> document.root().findPath((String) null));
+    }
+
+    @Test
+    void openImmutableProvidesUncloseableView() throws Exception {
+        Path file = tempDir.resolve("test_data.json");
+        JsonDocument immutableDoc = JsonDocument.openImmutable(file);
+        assertTrue(immutableDoc.isImmutable());
+        assertFalse(document.isImmutable());
+
+        JsonValue value = immutableDoc.find("stringKey");
+        assertEquals("Hello World", value.asString());
+
+        // Calling close on an immutable document is an idempotent no-op.
+        immutableDoc.close();
+        immutableDoc.close();
+
+        assertEquals("Hello World", value.asString());
+        assertEquals("Hello World", immutableDoc.find("stringKey").asString());
+        assertEquals(JsonType.OBJECT, immutableDoc.root().type());
+        immutableDoc.validate();
     }
 
     @Test
