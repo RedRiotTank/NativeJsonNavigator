@@ -213,7 +213,7 @@ readme, n4 = re.subn(
     rf"\g<1>{version}",
     readme,
 )
-if n3 != 1 or n4 != 1:
+if n3 != 1 or n4 < 1:
     raise SystemExit("Could not update README.md version snippets")
 open("README.md", "w", encoding="utf-8").write(readme)
 PY
